@@ -1,0 +1,23 @@
+from enum import Enum
+
+class ControlTable(Enum):
+    OPERATING_MODE= 11
+    TORQUE_ENABLE= 512
+    # position:
+    GOAL_POSITION= 564
+    CURRENT_POSITION= 580
+    MAX_POSITION_LIMIT = 48
+    MIN_POSITION_LIMIT = 52
+    # velo:
+    GOAL_VELOCITY = 552
+    VELOCITY_kP = 526
+    VELOCITY_kI = 524
+    CURRENT_VELOCITY = 576
+    # led:
+    LED_RED = 513
+    LED_GREEN = 514
+    LED_BLUE = 515
+    # tick:
+    REALTIME_TICK = 568
+
+
