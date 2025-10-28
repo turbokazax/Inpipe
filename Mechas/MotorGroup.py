@@ -25,7 +25,7 @@ class MotorGroup:
     def setOpmode(self, opmode: OpModes):
         for motor in self.motors:
             motor.setOpMode(opmode)
-
+            
     def zero(self):
         for motor in self.motors:
             motor.zero(verbose = True)
