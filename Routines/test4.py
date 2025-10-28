@@ -35,6 +35,8 @@ pos1 = motor1.getCurrentPosition()
 #             else:
 #                 print("Trajectory completed.")
 trm = TrajectoryManager(Trajectory(100_000, 300_000, 500_000, 800_000, 1_000_000, 800_000, 500_000, 300_000, 150_000, 0))
+global polling
+polling = True
 
 class test4(Routine):
     def __init__(self):
@@ -45,6 +47,7 @@ class test4(Routine):
         # motor1.setGoalPWM(0)
         if abs(motor1.getCurrentPosition()) >5 : motor1.forceZero()
         motor1.setReverseMode(False)
+        self.polling = True
     def loop(self):
         motor1.getCurrentPosition()
         # motor1.getTorque() 
@@ -54,12 +57,16 @@ class test4(Routine):
         # motor1.setGoalPosition(motor1.getMaxPositionLimit() + 3_000_000)
         # motor1.rotateByAngle(90, times = 1)
         # motor1.isMoving()
-        i = input()
+        # i = input()
+        i = ''
+        if self.polling: i = input()
         if i == 'q':
             motor1.rotateByAngle(90, times=1)
-        if i == 'a':
+        elif i == 'a':
             motor1.rotateByAngle(-90, times=1)
-        # trm.follow(motor1)
+        elif i == 'z':
+            self.polling = not self.polling
+            trm.follow(motor1)
         pass
 
     def run(self):

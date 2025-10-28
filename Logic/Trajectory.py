@@ -28,4 +28,6 @@ class TrajectoryManager:
                     print(f"Reached position {next_pos}.")
             else:
                 print("Trajectory completed.")
+    def isCompleted(self):
+        return self.trajectory.completed
 # trm = TrajectoryManager(Trajectory(100_000, 300_000, 500_000, 800_000, 1_000_000, 800_000, 500_000, 300_000, 150_000, 0))
