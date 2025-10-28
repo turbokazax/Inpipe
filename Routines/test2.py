@@ -1,5 +1,5 @@
 from Mechas.DCMotor import DCMotor
-from Misc.MotorGroup import MotorGroup
+from Inpipe.Mechas.MotorGroup import MotorGroup
 from Misc.OpModes import OpModes
 from Misc.Colors import Colors
 
