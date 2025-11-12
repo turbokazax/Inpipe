@@ -95,7 +95,7 @@ class DCMotor:
         print("Delta:", delta, "Reached?", delta <= tolerance)
         return delta <= tolerance
     
-    def rotateByAngle(self, angle, times = 1, verbose = True):
+    def rotateByAngle(self, angle, verbose = True):
         # if self.reachedGoalPosition() and not self.rotated:
         #     pos = self.getCurrentPosition()
         #     # 1 pos = 0.00059259 deg

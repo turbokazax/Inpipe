@@ -55,7 +55,7 @@ class test4(Routine):
         # motor1.setGoalPWM(-2008)
         # time.sleep(0.01)
         # motor1.setGoalPosition(motor1.getMaxPositionLimit() + 3_000_000)
-        # motor1.rotateByAngle(90, times = 1)
+        # motor1.rotateByAngle(90, times = 1)f
         # motor1.isMoving()
         # i = input()
         i = ''
