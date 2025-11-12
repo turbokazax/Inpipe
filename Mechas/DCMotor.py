@@ -4,10 +4,24 @@ from Misc.int32 import int32
 from Misc.OpModes import OpModes
 from Misc.Colors import Colors
 
+import platform
+
+def get_tty_port():
+    system = platform.system()
+    if system == "Windows":
+        return "COM3"  # Adjust as necessary
+    elif system == "Linux":
+        return "/dev/ttyUSB0"  # Adjust as necessary
+    elif system == "Darwin":  # macOS
+        return "/dev/tty.usbserial-FT763IB9"  # Adjust as necessary
+    else:
+        raise Exception("Unsupported operating system")
+
+
 class DCMotor:
-    def __init__(self, DXL_ID, BAUD=1e6, PORT="/dev/tty.usbserial-FT763IB9"):
+    def __init__(self, DXL_ID, BAUD=1e6, PORT=None):
         self.DXL_ID = DXL_ID;
-        self.PORT = PORT;
+        self.PORT = PORT if PORT is not None else get_tty_port()
         self.BAUD = BAUD;
         self.PROTOCOL_VER = 2;
         self.port = PortHandler(self.PORT)
