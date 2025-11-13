@@ -4,7 +4,7 @@ from Misc.OpModes import OpModes
 from Logic.Trajectory import Trajectory, TrajectoryManager
 import time
 
-motor1 = DCMotor(1)
+motor1 = DCMotor(2)
 pos1 = motor1.getCurrentPosition()
 # class Trajectory:
 #     def __init__(self, *positions):

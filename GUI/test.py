@@ -6,7 +6,7 @@ import math
 from Mechas.DCMotor import DCMotor
 from Misc.OpModes import OpModes
 
-motor1 = DCMotor(1)
+motor1 = DCMotor(0)
 motor1.enableTorque()
 motor1.setOpMode(OpModes.EXTENDED_POSITION)
 motor1.setReverseMode(False)

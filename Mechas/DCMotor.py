@@ -34,13 +34,13 @@ class DCMotor:
         print(f"Motor {self.DXL_ID} initialized:")
         self.getInfo(verbose=True)
         match self.DXL_ID:
-            case 1:
+            case 0:
                 self.setLEDColor(Colors.RED.value, verbose=False)
-            case 2:
+            case 1:
                 self.setLEDColor(Colors.GREEN.value, verbose=False)
-            case 3:
+            case 2:
                 self.setLEDColor(Colors.BLUE.value, verbose=False)
-            case 4:
+            case 3:
                 self.setLEDColor(Colors.YELLOW.value, verbose=False)
 
     def getInfo(self, verbose = False):
