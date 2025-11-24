@@ -1,4 +1,5 @@
 from Mechas.DCMotor import DCMotor
+import time
 
 class Trajectory:
     def __init__(self, *positions):
@@ -11,23 +12,42 @@ class TrajectoryManager:
     def __init__(self, trajectory):
         self.trajectory = trajectory
         self.current_index = 0
+        self.traectory_completed = False
     def getNextPosition(self):
         if self.current_index < len(self.trajectory.positions):
             pos = self.trajectory.positions[self.current_index]
             self.current_index += 1
             return pos
         else:
+            print("Trajectory completed.")
             self.trajectory.completed = True
             return None
     def follow(self, motor: DCMotor, condition = True):
+        # if not self.trajectory.completed and not motor.isMoving(verbose=False) and condition:
+        #     next_pos = self.getNextPosition()
+        #     if next_pos is not None and not motor.isMoving(verbose=False):
+        #         motor.setGoalPosition(next_pos)
+        print(f"Current Index: {self.current_index}, Motor Position: {motor.getCurrentPosition(verbose=False)}")
+        # if motor.reachedGoalPosition(tolerance=50) and not self.current_index == 0:
+        #     time.sleep(3)
+        #     print(f"REACHED position {motor.getCurrentPosition()}.")
+        # elif self.current_index == 0:
+        #     next_pos = self.getNextPosition()
+        #     if next_pos is not None:
+        #         motor.setGoalPosition(next_pos)
+        # else:
+        #     if not self.trajectory.completed and not motor.isMoving(verbose=False) and condition:
+        #         next_pos = self.getNextPosition()
+        #         if next_pos is not None:
+        #             motor.setGoalPosition(next_pos)
         if not self.trajectory.completed and not motor.isMoving(verbose=False) and condition:
             next_pos = self.getNextPosition()
-            if next_pos is not None:
+            if motor.reachedGoalPosition(tolerance=50) and not self.current_index == 0:
+                time.sleep(3)
+                print(f"REACHED position {motor.getCurrentPosition(verbose=False)}.")
+            if next_pos is not None and not motor.isMoving(verbose=False):
                 motor.setGoalPosition(next_pos)
-                if motor.reachedGoalPosition():
-                    print(f"Reached position {next_pos}.")
-            else:
-                print("Trajectory completed.")
+
     def isCompleted(self):
         return self.trajectory.completed
 # trm = TrajectoryManager(Trajectory(100_000, 300_000, 500_000, 800_000, 1_000_000, 800_000, 500_000, 300_000, 150_000, 0))

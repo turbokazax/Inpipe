@@ -58,6 +58,19 @@ class DCMotor:
         return {"model": model,
                 "opmode": opmode
                 }
+
+    def getOpMode(self, verbose=True):
+        opmode, c,e = self.packet.read1ByteTxRx(self.port, self.DXL_ID, CT.OPERATING_MODE.value)
+        match opmode:
+            case 0: opmode = OpModes.TORQUE
+            case 1: opmode = OpModes.VELOCITY
+            case 3: opmode = OpModes.POSITION
+            case 4: opmode = OpModes.EXTENDED_POSITION
+            case 16: opmode = OpModes.PWM
+        if verbose:
+            print(f"ID {self.DXL_ID}: Current OpMode - {opmode} - {OpModes(opmode).name}")
+        return opmode
+
     def setOpMode(self, opmode: OpModes, verbose=True):
         torque = self.getTorque(verbose=False)
         if torque == 1: self.disableTorque(verbose=False)
@@ -108,6 +121,12 @@ class DCMotor:
         delta = abs(self.getCurrentPosition(verbose=False) - self.getGoalPosition(verbose=False))
         print("Delta:", delta, "Reached?", delta <= tolerance)
         return delta <= tolerance
+
+    def reachedPosition(self, reference: int, tolerance: int = 0, verbose: bool = True):
+        delta = abs(self.getCurrentPosition(verbose=False) - reference)
+        if verbose:
+            print(f"Motor {self.DXL_ID} - Current Position: {self.getCurrentPosition(verbose=False)}, Reference: {reference}, Delta: {delta}, Reached?: {delta <= tolerance}")
+        return delta <= tolerance
     
     def rotateByAngle(self, angle, verbose = True):
         # if self.reachedGoalPosition() and not self.rotated:
@@ -141,12 +160,13 @@ class DCMotor:
     def forceZero(self, verbose = True):
         opmode = self.getInfo()["opmode"]
         if opmode != OpModes.EXTENDED_POSITION or opmode != OpModes.POSITION:
-            self.setOpMode(OpModes.POSITION, verbose=False)
+            self.setOpMode(OpModes.EXTENDED_POSITION, verbose=False)
             self.setGoalPosition(0, verbose)
             if verbose: print(f"Motor {self.DXL_ID} force zeroed")
-            while not self.reachedGoalPosition(1):
-                continue
-            self.setOpMode(opmode)
+            if self.reachedGoalPosition(1):
+                # continue
+                self.setOpMode(opmode, verbose=False)
+            # self.setOpMode(opmode)
         else:
             self.zero(verbose = verbose)
     

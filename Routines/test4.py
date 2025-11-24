@@ -4,7 +4,7 @@ from Misc.OpModes import OpModes
 from Logic.Trajectory import Trajectory, TrajectoryManager
 import time
 
-motor1 = DCMotor(2)
+motor1 = DCMotor(0)
 pos1 = motor1.getCurrentPosition()
 # class Trajectory:
 #     def __init__(self, *positions):
@@ -49,7 +49,7 @@ class test4(Routine):
         motor1.setReverseMode(False)
         self.polling = True
     def loop(self):
-        motor1.getCurrentPosition()
+        # motor1.getCurrentPosition()
         # motor1.getTorque() 
         # motor1.getPWMLimit(verbose=True)
         # motor1.setGoalPWM(-2008)
@@ -58,15 +58,16 @@ class test4(Routine):
         # motor1.rotateByAngle(90, times = 1)f
         # motor1.isMoving()
         # i = input()
-        i = ''
-        if self.polling: i = input()
-        if i == 'q':
-            motor1.rotateByAngle(90, times=1)
-        elif i == 'a':
-            motor1.rotateByAngle(-90, times=1)
-        elif i == 'z':
-            self.polling = not self.polling
-            trm.follow(motor1)
+        # i = ''
+        # if self.polling: i = input()
+        # if i == 'q':
+        #     motor1.rotateByAngle(90, times=1)
+        # elif i == 'a':
+        #     motor1.rotateByAngle(-90, times=1)
+        # elif i == 'z':
+        #     self.polling = not self.polling
+        #     trm.follow(motor1)
+        TrajectoryManager.follow(trm, motor1)
         pass
 
     def run(self):
