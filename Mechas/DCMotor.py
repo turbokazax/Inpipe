@@ -71,10 +71,11 @@ class DCMotor:
             print(f"ID {self.DXL_ID}: Current OpMode - {opmode} - {OpModes(opmode).name}")
         return opmode
 
-    def setOpMode(self, opmode: OpModes, verbose=True):
+    def setOpMode(self, opmode: OpModes, verbose=False):
         torque = self.getTorque(verbose=False)
         if torque == 1: self.disableTorque(verbose=False)
         c, e = self.packet.write1ByteTxRx(self.port, self.DXL_ID, CT.OPERATING_MODE.value, opmode.value)
+        if verbose: print("Set OpMode:", opmode, "Response:", c, e)
         if torque == 1: self.enableTorque(verbose=False)
         info = self.getInfo(verbose=False)
         print(f"ID {self.DXL_ID}: set OpMode - {info['opmode']} - {OpModes(info['opmode']).name}")
@@ -116,6 +117,27 @@ class DCMotor:
                 goal = self.getMinPositionLimit(verbose=False)
         c, e = self.packet.write4ByteTxRx(self.port, self.DXL_ID, CT.GOAL_POSITION.value, goal)
         if verbose: print("write goal:", c,e, "goal:", goal)
+
+    # def setCurrentPosition(self, position, verbose = True):
+    #     # opmode = self.getInfo()["opmode"]
+    #     # assert opmode == OpModes.EXTENDED_POSITION, "Motor must be in EXTENDED POSITION (4) mode"
+    #     c, e = self.packet.write4ByteTxRx(self.port, self.DXL_ID, CT.CURRENT_POSITION.value, position)
+    #     if verbose: print("Set Current Position:", position, "Response:", c, e)
+
+    def resetEncoder(self, verbose = True):
+        # self.setCurrentPosition(0, verbose)
+        cur = self.getCurrentPosition(verbose=False)
+        if cur != 0:
+            torque = self.getTorque(verbose=False)
+            if torque == 1:
+                self.disableTorque(verbose=False)
+            c,e = self.packet.write4ByteTxRx(self.port, self.DXL_ID, CT.HOMING_OFFSET.value, -cur)
+            if torque == 1:
+                self.enableTorque(verbose=False)
+            if verbose: print("Reset encoder:", c,e)
+            if verbose: print(f"Motor {self.DXL_ID} encoder reset. Previous position was {cur}.")
+        else:
+            if verbose: print(f"Motor {self.DXL_ID} encoder is already at 0. No reset needed.")
 
     def reachedGoalPosition(self, tolerance = 0, verbose = True):
         delta = abs(self.getCurrentPosition(verbose=False) - self.getGoalPosition(verbose=False))
@@ -305,3 +327,4 @@ class DCMotor:
         c,e = self.packet.write1ByteTxRx(self.port, self.DXL_ID, CT.LED_BLUE.value, b)
         if verbose: print(f"LED Color set to: R:{r} G:{g} B:{b}")
     
+

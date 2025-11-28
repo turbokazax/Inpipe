@@ -10,7 +10,16 @@ motor1 = DCMotor(0)
 motor1.enableTorque()
 motor1.setOpMode(OpModes.EXTENDED_POSITION)
 motor1.setReverseMode(False)
+motor2 = DCMotor(1)
+motor2.enableTorque()
+motor2.setOpMode(OpModes.EXTENDED_POSITION)
+motor2.setReverseMode(False)
 
+motors = {
+    "Motor 0": motor1,
+    "Motor 1": motor2,
+}
+activeMotor = motor1
 # ---- Helper wrappers you can map to your real API ----
 def set_velocity(vel_raw: float):
     """
@@ -18,7 +27,7 @@ def set_velocity(vel_raw: float):
     Maps directly to DCMotor.setGoalVelocity().
     """
     try:
-        motor1.setGoalVelocity(int(vel_raw), verbose=False)
+        activeMotor.setGoalVelocity(int(vel_raw), verbose=False)
     except Exception as e:
         raise e
 
@@ -27,28 +36,30 @@ def set_goal_angle(angle_deg: float):
     Accept degrees from the GUI and convert to ticks for DCMotor.setGoalPosition().
     """
     try:
-        ticks = int(round(float(angle_deg) / motor1.AnglePerPosTick))
-        motor1.setGoalPosition(ticks, verbose=False)
+        ticks = int(round(float(angle_deg) / activeMotor.AnglePerPosTick))
+        activeMotor.setGoalPosition(ticks, verbose=False)
     except Exception as e:
         raise e
 
 def get_present_angle_safe():
     """
     Read present position in ticks and convert to degrees for display.
+    Returns (ticks, degrees) or (None, None) on failure.
     """
     try:
-        ticks = motor1.getCurrentPosition(verbose=False)
-        return float(ticks) * motor1.AnglePerPosTick
+        ticks = activeMotor.getCurrentPosition(verbose=False)
+        deg = float(ticks) * activeMotor.AnglePerPosTick
+        return ticks, deg
     except Exception:
-        return None
+        return None, None
 # ------------------------------------------------------
 
 # ---- Replace these with your real motor functions (kept, still used by buttons) ----
 def rotate_a_cw(degrees: float):
-    motor1.rotateByAngle(degrees)
+    activeMotor.rotateByAngle(degrees)
 
 def rotate_b_ccw(degrees: float):
-    motor1.rotateByAngle(-degrees)
+    activeMotor.rotateByAngle(-degrees)
 # ------------------------------------------------------
 
 class MotorGUI(tk.Tk):
@@ -67,15 +78,35 @@ class MotorGUI(tk.Tk):
         self.mode_cb.pack(side="left", padx=(6, 12))
         self.mode_cb.bind("<<ComboboxSelected>>", self.on_mode_change)
 
+        ttk.Label(top, text="Motor:").pack(side="left")
+        self.motor_var = tk.StringVar(value="Motor 0")
+        self.motor_cb = ttk.Combobox(top, width=10, state="readonly",
+                                     values=list(motors.keys()),
+                                     textvariable=self.motor_var)
+        self.motor_cb.pack(side="left", padx=(6, 12))
+        self.motor_cb.bind("<<ComboboxSelected>>", self.on_motor_change)
+
+        # Direction indicator, toggle, and reset encoder (stacked vertically)
+        dir_frame = ttk.Frame(top)
+        dir_frame.pack(side="left", padx=(6, 4))
+        self.dir_var = tk.StringVar(value="Dir: ?")
+        self.dir_label = ttk.Label(dir_frame, textvariable=self.dir_var)
+        self.dir_label.pack(side="top", anchor="w")
+        self.dir_btn = ttk.Button(dir_frame, text="Toggle dir", command=self.on_toggle_dir)
+        self.dir_btn.pack(side="top", fill="x", pady=(2, 0))
+        self.reset_btn = ttk.Button(dir_frame, text="Reset Enc", command=self.on_reset_encoder)
+        self.reset_btn.pack(side="top", fill="x", pady=(2, 0))
+
         # Live position label
         self.pos_var = tk.StringVar(value="Position: —")
         self.pos_label = ttk.Label(top, textvariable=self.pos_var)
-        self.pos_label.pack(side="right")
+        self.pos_label.pack(side="left", padx=(12, 0))
 
         self.pos_deg_var = tk.StringVar(value="—°")
+        self.pos_ticks_var = tk.StringVar(value="ticks: —")
 
         self.title("Dynamixel Test")
-        self.geometry("520x300")
+        self.geometry("640x320")
         self.resizable(False, False)
 
         # --- Controls ---
@@ -104,6 +135,7 @@ class MotorGUI(tk.Tk):
         self._velocity_after_id = None
         self.render_mode_ui()
         self.after(100, self._update_position)
+        self._update_dir_label()
 
     # ---- Helpers ----
     def get_degrees(self) -> float:
@@ -140,10 +172,54 @@ class MotorGUI(tk.Tk):
         mode = self.mode_var.get()
         # Map to your enum if desired
         try:
-            motor1.setOpMode(getattr(OpModes, mode))
+            activeMotor.setOpMode(getattr(OpModes, mode))
         except Exception:
             pass
         self.render_mode_ui()
+
+    def on_motor_change(self, event=None):
+        global activeMotor
+        name = self.motor_var.get()
+        m = motors.get(name)
+        if m is not None:
+            activeMotor = m
+            # Keep OpMode in sync with current GUI selection
+            try:
+                activeMotor.setOpMode(getattr(OpModes, self.mode_var.get()))
+            except Exception:
+                pass
+        # Refresh direction indicator whenever motor changes
+        self._update_dir_label()
+
+    def _update_dir_label(self):
+        """Update UI text showing whether the active motor is inverted (reverse mode)."""
+        global activeMotor
+        try:
+            dm = activeMotor.getDriveMode(verbose=False)
+            inverted = bool(dm & 0x01)
+            txt = "Dir: Inverted" if inverted else "Dir: Normal"
+        except Exception:
+            txt = "Dir: ?"
+        self.dir_var.set(txt)
+
+    def on_toggle_dir(self):
+        """Toggle reverse mode on the active motor and refresh the label."""
+        global activeMotor
+        try:
+            activeMotor.invert()
+            self.append_log("Toggled motor direction.\n")
+        except Exception as e:
+            self.append_log(f"Direction toggle error: {e}\n")
+        self._update_dir_label()
+
+    def on_reset_encoder(self):
+        """Reset the active motor's encoder to zero."""
+        global activeMotor
+        try:
+            activeMotor.resetEncoder(verbose=True)
+            self.append_log("Encoder reset to 0.\n")
+        except Exception as e:
+            self.append_log(f"Encoder reset error: {e}\n")
 
     def clear_mode_area(self):
         for w in self.mode_area.winfo_children():
@@ -188,19 +264,23 @@ class MotorGUI(tk.Tk):
             self.mode_area.columnconfigure(2, weight=0)
             self.mode_area.columnconfigure(3, weight=1)
 
+            # Show raw tick position just below the angle readout
+            ttk.Label(self.mode_area, text="Ticks:").grid(row=2, column=2, sticky="e", padx=(12, 6))
+            ttk.Label(self.mode_area, textvariable=self.pos_ticks_var).grid(row=2, column=3, sticky="w")
+
             if self.pos_type_var.get() == "Absolute":
-                ttk.Label(self.mode_area, text="Goal position (ticks):").grid(row=2, column=0, sticky="w")
+                ttk.Label(self.mode_area, text="Goal position (ticks):").grid(row=3, column=0, sticky="w")
                 self.goal_ticks_var = getattr(self, "goal_ticks_var", tk.StringVar(value="0"))
-                ttk.Entry(self.mode_area, width=12, textvariable=self.goal_ticks_var).grid(row=2, column=1, sticky="w", padx=(6, 12))
-                ttk.Button(self.mode_area, text="Set Goal", command=self.on_set_goal).grid(row=2, column=2, sticky="w")
+                ttk.Entry(self.mode_area, width=12, textvariable=self.goal_ticks_var).grid(row=3, column=1, sticky="w", padx=(6, 12))
+                ttk.Button(self.mode_area, text="Set Goal", command=self.on_set_goal).grid(row=3, column=2, sticky="w")
             else:
-                ttk.Label(self.mode_area, text="Delta angle (deg):").grid(row=2, column=0, sticky="w")
+                ttk.Label(self.mode_area, text="Delta angle (deg):").grid(row=3, column=0, sticky="w")
                 self.delta_var = getattr(self, "delta_var", tk.StringVar(value="30"))
-                ttk.Entry(self.mode_area, width=10, textvariable=self.delta_var).grid(row=2, column=1, sticky="w", padx=(6, 12))
+                ttk.Entry(self.mode_area, width=10, textvariable=self.delta_var).grid(row=3, column=1, sticky="w", padx=(6, 12))
                 self.btn_rel_plus = ttk.Button(self.mode_area, text="+ Rotate", command=lambda: self.on_rotate_relative(+1))
                 self.btn_rel_minus = ttk.Button(self.mode_area, text="− Rotate", command=lambda: self.on_rotate_relative(-1))
-                self.btn_rel_plus.grid(row=3, column=0, sticky="ew", pady=(6, 0), columnspan=2)
-                self.btn_rel_minus.grid(row=3, column=2, sticky="ew", pady=(6, 0))
+                self.btn_rel_plus.grid(row=4, column=0, sticky="ew", pady=(6, 0), columnspan=2)
+                self.btn_rel_minus.grid(row=4, column=2, sticky="ew", pady=(6, 0))
 
         elif mode == "PWM":
             ttk.Label(self.mode_area, text="PWM mode UI not implemented yet.").grid(row=0, column=0, sticky="w")
@@ -234,7 +314,7 @@ class MotorGUI(tk.Tk):
             self.append_log(f"Setting goal position to {ticks} ticks...\n")
             def send_ticks(t=ticks):
                 try:
-                    motor1.setGoalPosition(int(t), verbose=False)
+                    activeMotor.setGoalPosition(int(t), verbose=False)
                     self.after(0, lambda: self.append_log("Done.\n"))
                 except Exception as e:
                     self.after(0, lambda: self.append_log(f"Error: {e}\n"))
@@ -250,14 +330,16 @@ class MotorGUI(tk.Tk):
         threading.Thread(target=self._run_safe, args=(set_goal_angle, angle), daemon=True).start()
 
     def _update_position(self):
-        pos = get_present_angle_safe()
-        if pos is None:
+        ticks, pos = get_present_angle_safe()
+        if ticks is None:
             self.pos_var.set("Position: N/A")
             self.pos_deg_var.set("N/A")
+            self.pos_ticks_var.set("ticks: N/A")
         else:
-            # Show 1 decimal place
+            # Show 1 decimal place for degrees
             self.pos_var.set(f"Position: {pos:.1f}°")
             self.pos_deg_var.set(f"{pos:.1f}°")
+            self.pos_ticks_var.set(f"{int(ticks)}")
         self.after(100, self._update_position)
 
     def on_rotate_relative(self, direction: int):

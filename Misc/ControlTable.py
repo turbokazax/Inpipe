@@ -5,6 +5,7 @@ class ControlTable(Enum):
     DRIVE_MODE = 10
     TORQUE_ENABLE= 512
     MOVING = 570
+    HOMING_OFFSET = 20
     # PWM:
     GOAL_PWM = 548 # ( 0 to 2009 (100%) ) unit: 1 = 0.0497776%
     GOAL_CURRENT = 550 # -4500 to 4500 A, unit: 1 = 1 A
