@@ -15,10 +15,10 @@ class MotorGroup:
         for motor in self.motors:
             motor.disableTorque()
 
-    def getCurrentPosition(self):
+    def getCurrentPosition(self, verbose: bool = True):
         for motor in self.motors:
             # print(motor.getCurrentPosition(verbose=False))
-            print(f"Motor {motor.DXL_ID}: {motor.getCurrentPosition(verbose=False)}")
+            print(f"Motor {motor.DXL_ID}: {motor.getCurrentPosition(verbose=verbose)}")
 
     def setGoalPosition(self, goal):
         for motor in self.motors:

@@ -49,6 +49,7 @@ class test4(Routine):
         motor1.setReverseMode(False)
         self.polling = True
     def loop(self):
+        trm.follow(motor1, condition=self.polling)
         # motor1.getCurrentPosition()
         # motor1.getTorque() 
         # motor1.getPWMLimit(verbose=True)

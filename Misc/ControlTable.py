@@ -23,6 +23,9 @@ class ControlTable(Enum):
     VELOCITY_kP = 526
     VELOCITY_kI = 524
     CURRENT_VELOCITY = 576
+    #Profile velo / accel:
+    PROFILE_VELOCITY = 560
+    PROFILE_ACCELERATION = 556
     # led:
     LED_RED = 513
     LED_GREEN = 514

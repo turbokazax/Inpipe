@@ -14,9 +14,9 @@ def get_tty_port():
         return "/dev/ttyUSB0"  # Adjust as necessary
     elif system == "Darwin":  # macOS
         return "/dev/tty.usbserial-FT763IB9"  # Adjust as necessary
+        # return "/dev/tty.usbserial-FT66WNPY"
     else:
         raise Exception("Unsupported operating system")
-
 
 class DCMotor:
     def __init__(self, DXL_ID, BAUD=1e6, PORT=None):
@@ -26,7 +26,7 @@ class DCMotor:
         self.PROTOCOL_VER = 2;
         self.port = PortHandler(self.PORT)
         self.packet = PacketHandler(self.PROTOCOL_VER)
-        self.AnglePerPosTick = 0.00059259
+        self.AnglePerPosTick = 0.00059259 # angle/tick
         self.rotated = False
         self.rot_counter = 0
         self.rot_allowed = 0
@@ -42,6 +42,8 @@ class DCMotor:
                 self.setLEDColor(Colors.BLUE.value, verbose=False)
             case 3:
                 self.setLEDColor(Colors.YELLOW.value, verbose=False)
+            case 4:
+                self.setLEDColor(Colors.MAGENTA.value, verbose=False)
 
     def getInfo(self, verbose = False):
         if verbose: print("ID:", self.DXL_ID)
@@ -49,7 +51,7 @@ class DCMotor:
         if verbose: print("ping:", model, c, e)
         opmode, c,e = self.packet.read1ByteTxRx(self.port, self.DXL_ID, CT.OPERATING_MODE.value)
         match opmode:
-            case 0: opmode = OpModes.TORQUE
+            case 0: opmode = OpModes.CURRENT
             case 1: opmode = OpModes.VELOCITY
             case 3: opmode = OpModes.POSITION
             case 4: opmode = OpModes.EXTENDED_POSITION
@@ -87,8 +89,13 @@ class DCMotor:
         return status
 
     # POSITION:
-    def getCurrentPosition(self, verbose = True):
+    def setCurrentPosition(self, position, verbose = False):
+        c, e = self.packet.write4ByteTxRx(self.port, self.DXL_ID, CT.CURRENT_POSITION.value, int(position))
+        if verbose: print("Set Current Position:", position, "Response:", c, e)
+    def getCurrentPosition(self, verbose = False):
         pos, c, e = self.packet.read4ByteTxRx(self.port, self.DXL_ID, CT.CURRENT_POSITION.value)
+        # if e == 0:
+        #     print("Read Current Position Error:", c, e)
         if verbose: print("Position:", int32(pos))
         return int32(pos)
     
@@ -115,27 +122,32 @@ class DCMotor:
                 goal = self.getMaxPositionLimit(verbose=False)
             if goal < self.getMinPositionLimit(verbose=False):
                 goal = self.getMinPositionLimit(verbose=False)
+        goal = int(goal)
         c, e = self.packet.write4ByteTxRx(self.port, self.DXL_ID, CT.GOAL_POSITION.value, goal)
         if verbose: print("write goal:", c,e, "goal:", goal)
 
-    # def setCurrentPosition(self, position, verbose = True):
-    #     # opmode = self.getInfo()["opmode"]
-    #     # assert opmode == OpModes.EXTENDED_POSITION, "Motor must be in EXTENDED POSITION (4) mode"
-    #     c, e = self.packet.write4ByteTxRx(self.port, self.DXL_ID, CT.CURRENT_POSITION.value, position)
-    #     if verbose: print("Set Current Position:", position, "Response:", c, e)
-
+    def getHomingOffset(self, verbose = True):
+        offset, c, e = self.packet.read4ByteTxRx(self.port, self.DXL_ID, CT.HOMING_OFFSET.value)
+        if verbose: print("Homing Offset:", int32(offset))
+        return int32(offset)
+    def setHomingOffset(self, offset, verbose = True):
+        c, e = self.packet.write4ByteTxRx(self.port, self.DXL_ID, CT.HOMING_OFFSET.value, offset)
+        if verbose: print("Set Homing Offset:", offset, "Response:", c, e)
     def resetEncoder(self, verbose = True):
         # self.setCurrentPosition(0, verbose)
-        cur = self.getCurrentPosition(verbose=False)
+        cur = self.getCurrentPosition(verbose=False) - self.getHomingOffset(verbose=False)
         if cur != 0:
             torque = self.getTorque(verbose=False)
             if torque == 1:
                 self.disableTorque(verbose=False)
-            c,e = self.packet.write4ByteTxRx(self.port, self.DXL_ID, CT.HOMING_OFFSET.value, -cur)
+            # c, e = self.packet.write4ByteTxRx(self.port, self.DXL_ID, CT.HOMING_OFFSET.value, -cur)
+            self.setHomingOffset(-cur, verbose=True)
+            self.getHomingOffset(verbose=True)
             if torque == 1:
                 self.enableTorque(verbose=False)
-            if verbose: print("Reset encoder:", c,e)
-            if verbose: print(f"Motor {self.DXL_ID} encoder reset. Previous position was {cur}.")
+            if verbose: 
+                print(f"Motor {self.DXL_ID} encoder reset. Previous position was {cur}.")
+                print(f"New current position is {self.getCurrentPosition(verbose=False)}.")
         else:
             if verbose: print(f"Motor {self.DXL_ID} encoder is already at 0. No reset needed.")
 
@@ -275,9 +287,10 @@ class DCMotor:
         if verbose: print("Current Velocity:", int32(velo))
         return int32(velo)
     
-    def setGoalVelocity(self, velocity, verbose = True, force = False):
+    def setGoalVelocity(self, velocity, verbose = False, force = False):
         opmode = self.getInfo()["opmode"]
         assert opmode == 1 or force, "Motor must be in VELOCITY (1) mode"
+        velocity = int(velocity)
         c, e = self.packet.write4ByteTxRx(self.port, self.DXL_ID, CT.GOAL_VELOCITY.value, velocity)
         if verbose: print("Set Goal Velocity:", velocity, "Response:", c, e)
 
@@ -300,16 +313,38 @@ class DCMotor:
         c, e = self.packet.write2ByteTxRx(self.port, self.DXL_ID, CT.GOAL_PWM.value, pwm)
         if verbose: print("Set Goal PWM:", pwm, "Response:", c, e)
     
-    def getGoalCurrent(self, verbose = True):
+    def getGoalCurrent(self, verbose = False):
         current, c, e = self.packet.read2ByteTxRx(self.port, self.DXL_ID, CT.GOAL_CURRENT.value)
         if verbose: print("Goal Current:", int32(current))
         return int32(current)
     
-    def setGoalCurrent(self, current, verbose = True):
+    def setGoalCurrent(self, current, verbose = False):
+        """
+        Sets the goal current for the motor. Must be in CURRENT (0) mode.
+        
+        :param current: Goal current value to set. Limits: [0, 4500]
+        """
         opmode = self.getInfo()["opmode"]
         assert opmode == 0, "Motor must be in TORQUE (0) mode"
-        c, e = self.packet.write2ByteTxRx(self.port, self.DXL_ID, CT.GOAL_CURRENT.value, current)
+        c, e = self.packet.write2ByteTxRx(self.port, self.DXL_ID, CT.GOAL_CURRENT.value, int(current))
         if verbose: print("Set Goal Current:", current, "Response:", c, e)
+
+    # Profile Velocty (Address: 560)
+    def getProfileVelocity(self, verbose = False):
+        velo, c, e = self.packet.read4ByteTxRx(self.port, self.DXL_ID, CT.PROFILE_VELOCITY.value)
+        if verbose: print("Profile Velocity:", int32(velo))
+        return int32(velo)
+    def setProfileVelocity(self, velocity, verbose = True):
+        c, e = self.packet.write4ByteTxRx(self.port, self.DXL_ID, CT.PROFILE_VELOCITY.value, int(velocity))
+        if verbose: print("Set Profile Velocity:", velocity, "Response:", c, e)
+    # Profile Acceleration (Address: 556)
+    def getProfileAcceleration(self, verbose = False):
+        accel, c, e = self.packet.read4ByteTxRx(self.port, self.DXL_ID, CT.PROFILE_ACCELERATION.value)
+        if verbose: print("Profile Acceleration:", int32(accel))
+        return int32(accel)
+    def setProfileAcceleration(self, acceleration, verbose = True):
+        c, e = self.packet.write4ByteTxRx(self.port, self.DXL_ID, CT.PROFILE_ACCELERATION.value, int(acceleration))
+        if verbose: print("Set Profile Acceleration:", acceleration, "Response:", c, e)
 
     # LED: 
     def getLEDColor(self, verbose = True):

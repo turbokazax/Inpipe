@@ -6,7 +6,6 @@ class Routine:
     def loop(self):
         """Main control loop (runs repeatedly)."""
         pass
-
     def run(self):
         """Run the routine until interrupted."""
         try:
