@@ -4,7 +4,8 @@ from Misc.int32 import int32
 from Misc.OpModes import OpModes
 from Misc.Colors import Colors
 
-import platform
+import tty
+import platform 
 
 def get_tty_port():
     system = platform.system()
@@ -13,19 +14,29 @@ def get_tty_port():
     elif system == "Linux":
         return "/dev/ttyUSB0"  # Adjust as necessary
     elif system == "Darwin":  # macOS
-        return "/dev/tty.usbserial-FT763IB9"  # Adjust as necessary
-        # return "/dev/tty.usbserial-FT66WNPY"
+        # return "/dev/tty.usbserial-FT763IB9"  # Adjust as necessary
+        return "/dev/tty.usbserial-FT66WNPY"
     else:
         raise Exception("Unsupported operating system")
 
 class DCMotor:
-    def __init__(self, DXL_ID, BAUD=1e6, PORT=None):
+    def __init__(self, DXL_ID, BAUD=1e6, PORT=None, packet = None, port = None):
         self.DXL_ID = DXL_ID;
         self.PORT = PORT if PORT is not None else get_tty_port()
         self.BAUD = BAUD;
         self.PROTOCOL_VER = 2;
-        self.port = PortHandler(self.PORT)
-        self.packet = PacketHandler(self.PROTOCOL_VER)
+        if port is None:
+            self.port = PortHandler(self.PORT)
+            print(f"Assigned a brand new PortHandler for Motor ID = {self.DXL_ID}")
+        else:
+            self.port = port
+            print("Using a pre-defined PortHandler")
+        if packet is None: 
+            self.packet = PacketHandler(self.PROTOCOL_VER)
+            print(f"Assigned a brand new PacketHandler for Motor ID = {self.DXL_ID}")
+        else:
+            self.packet = packet
+            print("Using a pre-defined PortHandler")
         self.AnglePerPosTick = 0.00059259 # angle/tick
         self.rotated = False
         self.rot_counter = 0
@@ -44,6 +55,19 @@ class DCMotor:
                 self.setLEDColor(Colors.YELLOW.value, verbose=False)
             case 4:
                 self.setLEDColor(Colors.MAGENTA.value, verbose=False)
+
+    def setPacketHandler(self, packet: PacketHandler):
+        self.packet = packet
+    
+    def getPacketHandler(self):
+        return self.packet
+    
+    def setPortHandler(self, port: PortHandler):
+        self.port = port
+        assert self.port.openPort(), f"Failed to re-assing port handler at {self.PORT}"
+
+    def getPortHandler(self):
+        return self.port
 
     def getInfo(self, verbose = False):
         if verbose: print("ID:", self.DXL_ID)
@@ -289,7 +313,7 @@ class DCMotor:
     
     def setGoalVelocity(self, velocity, verbose = False, force = False):
         opmode = self.getInfo()["opmode"]
-        assert opmode == 1 or force, "Motor must be in VELOCITY (1) mode"
+        assert opmode == 1 or force,f"Motor must be in VELOCITY (1) mode, received {opmode}"
         velocity = int(velocity)
         c, e = self.packet.write4ByteTxRx(self.port, self.DXL_ID, CT.GOAL_VELOCITY.value, velocity)
         if verbose: print("Set Goal Velocity:", velocity, "Response:", c, e)

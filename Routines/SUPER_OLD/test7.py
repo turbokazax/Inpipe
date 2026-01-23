@@ -2,13 +2,12 @@
 
 from Routines.Routine import Routine
 from Mechas.DCMotor import DCMotor
-from Mechas.MotorGroup import MotorGroup
+from Mechas.MotorGroupOLD import MotorGroup
 from Misc.OpModes import OpModes
 from Logic.Trajectory import Trajectory, TrajectoryManager
 from Misc.deg import deg
 import time, math
 from enum import Enum
-from Logic.PIDController import PIDController
 
 import socket
 
@@ -41,15 +40,13 @@ class fsm(Enum):
     POSXNEGY = 4
 
 
-class test8(Routine):
+class test7(Routine):
     def __init__(self):
         super().__init__()
         motors.enableTorque()
         motors.setOpmode(OpModes.EXTENDED_POSITION)
         motors.setReverseMode(False)
 
-        self.PID = PIDController()
-        
         self.r = deg(180)      # radius in ticks
         
         # tolerance for snapping y to 0 near the axis (ticks)
@@ -60,7 +57,6 @@ class test8(Routine):
         self.x = self.r
         self.y = 0
         self.state = fsm.POSXPOSY
-        self.theta = 0
         print(f"Radius = {self.r}")
 
         self.theta = 0 # starting, running angle
@@ -74,6 +70,11 @@ class test8(Routine):
         motor3.forceZero()
         motor4.forceZero()
         motor1.setGoalPosition(int(self.x))
+
+        motor1.setProfileVelocity(0, verbose=True)
+        motor1.setProfileAcceleration(0, verbose=True)
+        motor2.setProfileVelocity(0, verbose=True)
+        motor2.setProfileAcceleration(0, verbose=True)
         # Wait for motors to reach zero (avoid hot spin)
         while True:
             # print(v for v in motors.reachedGoalPosition(verbose=True).values())
@@ -86,8 +87,6 @@ class test8(Routine):
                 cmd = input()
                 if cmd.lower() == 'c':
                     self.last_time_s = time.time()  # seconds; for measuring loop timing
-                    # motors.setOpmode(OpModes.VELOCITY)
-                    motors.setOpmode(OpModes.CURRENT)
                     print("Continuing...")
                     break
             time.sleep(0.01)
@@ -96,30 +95,21 @@ class test8(Routine):
         dt_s = now_s - self.last_time_s
         self.last_time_s = now_s
 
-        t = 7.0 # s
-        omega = math.pi / 2 / t
-
         # Guard against the very first iteration or any large scheduling hiccups
         if dt_s <= 0 or dt_s > 0.25:
             dt_s = 0.01
 
+        t = 3.2  # seconds per quarter rev
+        omega = (math.pi / 2) / t  # rad/s
+
         self.theta += omega * dt_s
         self.theta = min(self.theta, math.pi/2) # for 1st quadrant
 
-        self.x = self.r * math.cos(self.theta)
-        self.y = self.r * math.sin(self.theta)
+        self.x = round(self.r * math.cos(self.theta))
+        self.y =round(self.r * math.sin(self.theta))
 
-        self.PID.setPID(kp=0.005, ki=0.0, kd=0.01)
-        self.PID.setOutputLimit(300)  # limit current output
-
-        pos_m1 = motor1.getCurrentPosition(verbose=False)
-        pos_m2 = motor2.getCurrentPosition(verbose=False)
-        # print(f"Motor 1: {motor1.getCurrentPosition()}, Motor 2: {motor2.getCurrentPosition()}")
-        # motor1.setGoalCurrent(200) # notes: 4500 - 1000 -- too fast; 100 - not moving, almost; 
-        # 500 - moving, quite fast; 200 - seems ideal?
-        pow1 = self.PID.calculate(pos_m1, self.x, dt_s)
-        motor1.setGoalCurrent(pow1)
-        print(f"Motor1: {motor1.getCurrentPosition()}, X: {self.x}, error: {self.x - motor1.getCurrentPosition()}, Current: {pow1}")
+        motor1.setGoalPosition(int(self.x))
+        motor2.setGoalPosition(int(self.y))
 
         # UDP send X,Y for live pos tracking:
         now = time.time()
@@ -128,23 +118,22 @@ class test8(Routine):
             # x,y,r,state
             # msg = f"{int(self.x)},{int(self.y)},{int(self.r)},{self.state.name}\n"
             posm1 = motor1.getCurrentPosition(verbose=False)
-            # posm2 = motor2.getCurrentPosition(verbose=False)
-            # posm3 = motor3.getCurrentPosition(verbose=False)
-            # posm4 = motor4.getCurrentPosition(verbose=False)
-            # if self.state == fsm.POSXPOSY:
-            #     msg = f"{int(posm1)},{int(posm2)},{int(self.r)},{self.state.name}\n"
-            # elif self.state == fsm.NEGXPOSY:
-            #     msg = f"{int(posm3)},{int(posm2)},{int(self.r)},{self.state.name}\n"
-            # elif self.state == fsm.NEGXNEGY:
-            #     msg = f"{int(posm3)},{int(posm4)},{int(self.r)},{self.state.name}\n"
-            # elif self.state == fsm.POSXNEGY:
-            #     msg = f"{int(posm1)},{int(posm4)},{int(self.r)},{self.state.name}\n"
-            msg = f"{int(posm1)},{0},{int(self.r)},{self.state.name}\n"
+            posm2 = motor2.getCurrentPosition(verbose=False)
+            posm3 = motor3.getCurrentPosition(verbose=False)
+            posm4 = motor4.getCurrentPosition(verbose=False)
+            if self.state == fsm.POSXPOSY:
+                msg = f"{int(posm1)},{int(posm2)},{int(self.r)},{self.state.name}\n"
+            elif self.state == fsm.NEGXPOSY:
+                msg = f"{int(posm3)},{int(posm2)},{int(self.r)},{self.state.name}\n"
+            elif self.state == fsm.NEGXNEGY:
+                msg = f"{int(posm3)},{int(posm4)},{int(self.r)},{self.state.name}\n"
+            elif self.state == fsm.POSXNEGY:
+                msg = f"{int(posm1)},{int(posm4)},{int(self.r)},{self.state.name}\n"
             try:    
                 self._udp.sendto(msg.encode(), self._viewer_addr)
             except OSError:
                 pass
-        # print(f"X = {int(self.x)}, Y = {int(self.y)}, state = {self.state.name}")
+        print(f"X = {int(self.x)}, Y = {int(self.y)}, state = {self.state.name}")
 
     def run(self):
         try:
@@ -160,5 +149,5 @@ class test8(Routine):
 
 
 if __name__ == "__main__":
-    routine = test8()
+    routine = test7()
     routine.run()

@@ -2,7 +2,7 @@
 
 from Routines.Routine import Routine
 from Mechas.DCMotor import DCMotor
-from Mechas.MotorGroup import MotorGroup
+from Mechas.MotorGroupOLD import MotorGroup
 from Misc.OpModes import OpModes
 from Misc.deg import deg
 import time, math
@@ -48,7 +48,7 @@ motor4 = DCMotor(4)  # -Y
 motors = MotorGroup(motor1, motor2, motor3, motor4)
 
 
-class test931beta(Routine):
+class test92(Routine):
     def __init__(self):
         super().__init__()
 
@@ -60,7 +60,7 @@ class test931beta(Routine):
         motors.setOpmode(OpModes.EXTENDED_POSITION)
 
         self.r = deg(180)  # radius (ticks)
-        self.r0 = self.r
+
         # Trajectory param
         self.theta = 0.0
         self.last_time_s = time.time()
@@ -83,8 +83,7 @@ class test931beta(Routine):
         # Start with P only, add a *small* D later.
         # kp units: (0.01 rpm units) / tick
         # kd units: (0.01 rpm units) * s / tick
-        # kp = 0.015 * self.r0 / self.r  # 0.015 for t = 5.0, r0 = deg(180); otherwise re-tune...
-        kp = 0.015
+        kp = 0.015 # 0.015 for t = 5.0, otherwise about 0.02-0.03
         kd = 0.000000 # not necessary for t = 5.0
 
         for pid in (self.PID_m1, self.PID_m2, self.PID_m3, self.PID_m4):
@@ -96,7 +95,7 @@ class test931beta(Routine):
         self._udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._viewer_addr = ("127.0.0.1", 9999)
         self._last_send = 0.0
-        self._send_period = 1.0 / 100.0 # 100 Hz to the viewer (plenty smooth)
+        self._send_period = 1.0 / 30.0  # 30 Hz to viewer
 
         print(f"Radius = {self.r} ticks")
 
@@ -140,28 +139,22 @@ class test931beta(Routine):
         now_s = time.time()
         dt_s = now_s - self.last_time_s
         self.last_time_s = now_s
-        if dt_s <= 0.0 or dt_s > 0.45:
+        if dt_s <= 0.0 or dt_s > 0.4:
             dt_s = 0.01
 
         # -----------------------------
         # Trajectory: full circle (smooth)
         # -----------------------------
-        # t_quarter = 5.0 * self.r / self.r0  # seconds per quarter circle scaled by radius
         t_quarter = 5.0  # seconds per quarter circle
         omega = (math.pi / 2.0) / t_quarter  # rad/s
 
-        dr = deg(1) # = 607500/360 = 1687.5
-
         self.theta = (self.theta + omega * dt_s) % (2.0 * math.pi)
-        self.r -= dr * dt_s
-        self.r = max(self.r, deg(20))  # min radius
+
         x_des = self.r * math.cos(self.theta)
         y_des = self.r * math.sin(self.theta)
 
-        # vx_des = -self.r * math.sin(self.theta) * omega * dr # ticks/s
-        # vy_des =  self.r * math.cos(self.theta) * omega * dr # ticks/s
-        vx_des = -self.r*math.sin(self.theta) * omega  - dr*math.cos(self.theta) # ticks/s
-        vy_des =  self.r*math.cos(self.theta) * omega - dr*math.sin(self.theta) # ticks/s
+        vx_des = -self.r * math.sin(self.theta) * omega  # ticks/s
+        vy_des =  self.r * math.cos(self.theta) * omega  # ticks/s
 
         # Determine quadrant state (for debugging only)
         if x_des >= 0 and y_des >= 0:
@@ -254,5 +247,5 @@ class test931beta(Routine):
 
 
 if __name__ == "__main__":
-    routine = test931beta()
+    routine = test92()
     routine.run()

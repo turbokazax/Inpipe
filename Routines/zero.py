@@ -1,6 +1,6 @@
 from Routines.Routine import Routine
 from Mechas.DCMotor import DCMotor
-from Mechas.MotorGroup import MotorGroup
+from Mechas.MotorGroupOLD import MotorGroup
 from Misc.OpModes import OpModes
 
 
