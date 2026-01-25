@@ -1,8 +1,12 @@
-# Jan 23, testing w/ only 2 motors for now, instead of 4 (full X and Y, no separate -X, -Y)
+# Jan 23 (updated): 2-motor lemniscate (Bernoulli) using a smooth parametric form
+# Fixes:
+#   1) Use continuous parametric lemniscate (no sqrt(cos 2θ) singularity, no half-curve gaps)
+#   2) Never "return" mid-loop (always command velocities every cycle)
+#   3) Turn on a small amount of PID feedback (kp != 0) so the crossing actually closes
 
 from Routines.Routine import Routine
 from Mechas.DCMotor import DCMotor
-from Mechas.MotorGroupOLD import MotorGroup
+from Trash.MotorGroupOLD import MotorGroup
 from Misc.OpModes import OpModes
 from Misc.deg import deg
 import time, math
@@ -14,8 +18,8 @@ import socket
 # -----------------------------
 # Helpers / constants
 # -----------------------------
-TICKS_PER_REV = 607_500.0  # H42P: 607,500 ticks per revolution (matches your deg() scale)
-GV_MIN, GV_MAX = -1500, 1500  # Goal Velocity units: 0.01 rev/min per unit
+TICKS_PER_REV = 607_500.0           # H42P: ticks per revolution (matches your deg() scale)
+GV_MIN, GV_MAX = -2920, 2920          # GoalVelocity units: 0.01 rev/min per unit
 
 
 def clamp(v, lo, hi):
@@ -30,7 +34,7 @@ def ticks_s_to_gv_units(v_ticks_s: float) -> float:
     return rpm * 100.0  # 0.01 rpm units
 
 
-def ff_gv_for_axis(v_ticks_s: float, active: bool) -> float:
+def ff_gv_for_axis(v_ticks_s: float, active: bool = True) -> float:
     return ticks_s_to_gv_units(v_ticks_s) if active else 0.0
 
 
@@ -41,13 +45,9 @@ class fsm(Enum):
     POSXNEGY = 4
 
 
-# motor1 = DCMotor(1)  # +X
-# motor2 = DCMotor(2)  # +Y
-motor1 = DCMotor(0)
-motor2 = DCMotor(1)
-# motor3 = DCMotor(3)  # -X
-# motor4 = DCMotor(4)  # -Y
-# motors = MotorGroup(motor1, motor2, motor3, motor4)
+# Two motors only (X and Y)
+motor1 = DCMotor(0)  # X axis
+motor2 = DCMotor(1)  # Y axis
 motors = MotorGroup(motor1, motor2)
 
 
@@ -58,85 +58,72 @@ class test932L(Routine):
         motors.enableTorque()
         motors.setReverseMode(False)
 
-        # Start in EXTENDED_POSITION for "setup / home-ish" placement,
-        # then switch to VELOCITY and stay there forever.
+        # Start in EXTENDED_POSITION for setup,
+        # then switch to VELOCITY and stay there.
         motors.setOpmode(OpModes.EXTENDED_POSITION)
 
-        self.r = deg(180)  # radius (ticks)
-        self.r0 = deg(270)  # max radius (ticks)
-        # Trajectory param
-        self.theta = 0.0
+        # Lemniscate amplitude (ticks)
+        # At t=0: x=a, y=0 (nice start pose)
+        self.a = deg(180)
+
+        # Trajectory parameter (NOT theta in polar form anymore)
+        self.t = 0.0
         self.last_time_s = time.time()
 
-        # State just for logging/visualization
+        # Logging/visualization state
         self.state = fsm.POSXPOSY
 
         # -----------------------------
-        # PIDs (use YOUR PID class)
-        # One PID per motor so we don't mix error histories across sign switches.
-        # We’ll keep Ki=0 unless you decide otherwise.
+        # PIDs (one per motor)
         # Output is in GoalVelocity units (0.01 rpm).
         # Error input is in ticks.
         # -----------------------------
         self.PID_m1 = PIDController()
         self.PID_m2 = PIDController()
-        self.PID_m3 = PIDController()
-        self.PID_m4 = PIDController()
 
-        # Start with P only, add a *small* D later.
-        # kp units: (0.01 rpm units) / tick
-        # kd units: (0.01 rpm units) * s / tick
-        # kp = 0.015 * self.r0 / self.r  # 0.015 for t = 5.0, r0 = deg(180); otherwise re-tune...
-        kp = 0.0 #0.015
-        kd = 0.00 # not necessary for t = 5.0
+        # Start with small P. Add small D only if needed.
+        # NOTE: You MUST tune these on your hardware.
+        kp = 0.002
+        kd = 0.0001
 
-        for pid in (self.PID_m1, self.PID_m2, self.PID_m3, self.PID_m4):
+        for pid in (self.PID_m1, self.PID_m2):
             pid.setPID(kp, 0.0, kd)
-            pid.setOutputLimit(900)       # correction limit; keep < 1500 so FF still matters
-            pid.setIntegralLimit(0.0)     # effectively disables integral accumulation
+            pid.setOutputLimit(900)       # correction limit (GV units)
+            pid.setIntegralLimit(0.0)     # disables integral
 
         # UDP setup for viewer_xy.py
         self._udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._viewer_addr = ("127.0.0.1", 9999)
         self._last_send = 0.0
-        self._send_period = 1.0 / 100.0 # 100 Hz to the viewer (plenty smooth)
+        self._send_period = 1.0 / 100.0  # 100 Hz
 
-        print(f"Radius = {self.r} ticks")
+        print(f"Lemniscate amplitude a = {self.a} ticks")
 
         motor1.setHomingOffset(0)
         motor2.setHomingOffset(0)
-        # Move to start pose: (x=+r, y=0)
-        # motor2.forceZero()
-        # motor3.forceZero()
-        # motor4.forceZero()
-        # motor1.setGoalPosition(int(self.r))
-        # motors.forceZero()
-        motor2.forceZero()
-        motor1.setGoalPosition(int(self.r))
 
-        # Optional profile settings (won’t hurt; in Velocity mode accel profile is commonly used)
+        # Move to start pose: (x=+a, y=0)
+        motor2.forceZero()
+        motor2.setGoalPosition(0)
+        motor1.setGoalPosition(int(self.a))
+
+        # Optional profile settings
         motor1.setProfileVelocity(1500, verbose=True)
         motor1.setProfileAcceleration(10765, verbose=True)
         motor2.setProfileVelocity(1500, verbose=True)
         motor2.setProfileAcceleration(10765, verbose=True)
-        # motor3.setProfileVelocity(1500, verbose=True)
-        # motor3.setProfileAcceleration(10765, verbose=True)
-        # motor4.setProfileVelocity(1500, verbose=True)
-        # motor4.setProfileAcceleration(10765, verbose=True)
 
         # Wait for start pose and zeroing
         while True:
             if (
                 motor1.reachedGoalPosition(verbose=False, tolerance=1)
                 and motor2.reachedGoalPosition(verbose=False, tolerance=1)
-                # and motor3.reachedGoalPosition(verbose=False, tolerance=1)
-                # and motor4.reachedGoalPosition(verbose=False, tolerance=1)
             ):
                 print("All motors ready at start pose.")
                 print("Type C to continue...")
                 if input().lower() == "c":
                     self.last_time_s = time.time()
-                    motors.setOpmode(OpModes.VELOCITY)  # IMPORTANT: stay in VELOCITY forever after this
+                    motors.setOpmode(OpModes.VELOCITY)  # stay in VELOCITY forever after this
                     print("Continuing in VELOCITY mode...")
                     break
             time.sleep(0.01)
@@ -152,122 +139,90 @@ class test932L(Routine):
             dt_s = 0.01
 
         # -----------------------------
-        # Trajectory: full circle (smooth)
+        # Trajectory: smooth Bernoulli lemniscate (parametric, continuous)
+        #
+        # x(t)= a cos t / (1+sin^2 t)
+        # y(t)= a sin t cos t / (1+sin^2 t)
+        #
+        # Derivatives wrt parameter t:
+        # dx/dt = a * s*(s^2 - 3) / (1+s^2)^2
+        # dy/dt = a * (1 - 3 s^2) / (1+s^2)^2
+        #
+        # Time derivatives: xdot = (dx/dt)*omega, ydot=(dy/dt)*omega
         # -----------------------------
-        # t_quarter = 5.0 * self.r / self.r0  # seconds per quarter circle scaled by radius
-        # t_quarter = 5.0  # seconds per quarter circle
-        # omega = (math.pi / 2.0) / t_quarter  # rad/s
-        omega = math.pi / 20 #
+        omega = math.pi / 10.0  # rad/s of the PARAMETER t (not polar theta)
+        self.t += omega * dt_s
 
-        # dr = deg(1) # = 607500/360 = 1687.5
-        # dr = 0
+        a = float(self.a)
+        s = math.sin(self.t)
+        c = math.cos(self.t)
+        den = 1.0 + s * s
 
-        # self.theta = (self.theta + omega * dt_s) % (2.0 * math.pi)
-        self.theta += omega * dt_s
-        # self.r -= dr * dt_s
-        self.k = deg(180) # spiral radius scaling factor (arbitrary choice) because ticks are very small by themselves
-        # self.r = self.k * self.theta
-        if math.cos(2.0 * self.theta) < 0 + 1e-6:
-            return
+        x_des = a * c / den
+        y_des = a * s * c / den
+
+        dx_dt = a * (s * (s * s - 3.0)) / (den * den)
+        dy_dt = a * (1.0 - 3.0 * s * s) / (den * den)
+
+        vx_des = dx_dt * omega  # ticks/s
+        vy_des = dy_dt * omega  # ticks/s
+
+        # Debug quadrant state
+        if x_des >= 0 and y_des >= 0:
+            self.state = fsm.POSXPOSY
+        elif x_des < 0 and y_des >= 0:
+            self.state = fsm.NEGXPOSY
+        elif x_des < 0 and y_des < 0:
+            self.state = fsm.NEGXNEGY
         else:
-            self.r = self.k * math.sqrt(math.cos(2.0 * self.theta)) # lemniscate of Bernoulli
-            
-            # self.r = min(self.r, self.r0)  # max radius
-            x_des = self.r * math.cos(self.theta)
-            y_des = self.r * math.sin(self.theta)
+            self.state = fsm.POSXNEGY
 
-            # vx_des = -self.r * math.sin(self.theta) * omega * dr # ticks/s <- static radius
-            # vy_des =  self.r * math.cos(self.theta) * omega * dr # ticks/s <- static radius
-            # vx_des = -self.r*math.sin(self.theta) * omega  - dr*math.cos(self.theta) # ticks/s <- radius changing by dt
-            # vy_des =  self.r*math.cos(self.theta) * omega - dr*math.sin(self.theta) # ticks/s <- radius changing by dt
-            # vx_des = -self.r * math.sin(self.theta) * omega + omega * math.cos(self.theta) * self.k # <- radius changing w.r.t omega (CURRENT)
-            # vy_des = self.r * math.cos(self.theta) * omega + omega * math.sin(self.theta) * self.k # <- radius changing w.r.t omega (CURRENT)
-            # lemniscate of Bernoulli derivatives
-            vx_des = -self.r * math.sin(self.theta) * omega - self.k * math.cos(self.theta) * math.sin(2.0 * self.theta) / math.sqrt(math.cos(2.0 * self.theta)) * omega
-            vy_des = self.r * math.cos(self.theta) * omega - self.k * math.sin(self.theta) * math.sin(2.0 * self.theta) / math.sqrt(math.cos(2.0 * self.theta)) * omega
-            
-            # Determine quadrant state (for debugging only)
-            if x_des >= 0 and y_des >= 0:
-                self.state = fsm.POSXPOSY
-            elif x_des < 0 and y_des >= 0:
-                self.state = fsm.NEGXPOSY
-            elif x_des < 0 and y_des < 0:
-                self.state = fsm.NEGXNEGY
-            else:
-                self.state = fsm.POSXNEGY
+        # -----------------------------
+        # Feedforward in GoalVelocity units
+        # -----------------------------
+        gv1_ff = ff_gv_for_axis(vx_des, True)
+        gv2_ff = ff_gv_for_axis(vy_des, True)
 
-            # -----------------------------
-            # Split desired position into motor targets
-            # -----------------------------
-            # x1_des = max(x_des, 0.0)  # motor1 (+X)
-            x1_des = x_des  # motor1 (+X)
-            y2_des = y_des  # motor2 (+Y)
-            # x3_des = min(x_des, 0.0)  # motor3 (-X)
-            # y2_des = max(y_des, 0.0)  # motor2 (+Y)
-            # y4_des = min(y_des, 0.0)  # motor4 (-Y)
+        # -----------------------------
+        # Read positions (ticks)
+        # -----------------------------
+        p1 = motor1.getCurrentPosition(verbose=False)
+        p2 = motor2.getCurrentPosition(verbose=False)
 
-            # Which motors are "active" for FF this cycle?
-            # x_pos_active = (x_des > 0.0)
-            # x_neg_active = (x_des < 0.0)
-            # y_pos_active = (y_des > 0.0)
-            # y_neg_active = (y_des < 0.0)
-            x_active = True
-            y_active = True
+        # -----------------------------
+        # PID corrections (GV units)
+        # PID.calculate(reference=current ticks, target=desired ticks, dt)
+        # -----------------------------
+        c1 = self.PID_m1.calculate(p1, x_des, dt_s)
+        c2 = self.PID_m2.calculate(p2, y_des, dt_s)
 
-            # gv1_ff = ff_gv_for_axis(vx_des, x_pos_active)
-            # gv3_ff = ff_gv_for_axis(vx_des, x_neg_active)
-            # gv2_ff = ff_gv_for_axis(vy_des, y_pos_active)
-            # gv4_ff = ff_gv_for_axis(vy_des, y_neg_active)
-            gv1_ff = ff_gv_for_axis(vx_des, x_active)
-            gv2_ff = ff_gv_for_axis(vy_des, y_active)
-            # -----------------------------
-            # Read positions (ticks)
-            # -----------------------------
-            p1 = motor1.getCurrentPosition(verbose=False)
-            p2 = motor2.getCurrentPosition(verbose=False)
-            # p3 = motor3.getCurrentPosition(verbose=False)
-            # p4 = motor4.getCurrentPosition(verbose=False)
+        gv1 = clamp(int(round(gv1_ff + c1)), GV_MIN, GV_MAX)
+        gv2 = clamp(int(round(gv2_ff + c2)), GV_MIN, GV_MAX)
 
-            # -----------------------------
-            # PID corrections (in GoalVelocity units)
-            # PID.calculate(reference, target, dt)
-            # reference = current position (ticks), target = desired position (ticks)
-            # output = correction velocity in GV units (0.01 rpm)
-            # -----------------------------
-            c1 = self.PID_m1.calculate(p1, x1_des, dt_s)
-            # c3 = self.PID_m3.calculate(p3, x3_des, dt_s)
-            c2 = self.PID_m2.calculate(p2, y2_des, dt_s)
-            # c4 = self.PID_m4.calculate(p4, y4_des, dt_s)
+        # -----------------------------
+        # Command velocities EVERY loop (no gaps)
+        # -----------------------------
+        motor1.setGoalVelocity(gv1, verbose=False)
+        motor2.setGoalVelocity(gv2, verbose=False)
 
-            gv1 = clamp(int(round(gv1_ff + c1)), GV_MIN, GV_MAX)
-            # gv3 = clamp(int(round(gv3_ff + c3)), GV_MIN, GV_MAX)
-            gv2 = clamp(int(round(gv2_ff + c2)), GV_MIN, GV_MAX)
-            # gv4 = clamp(int(round(gv4_ff + c4)), GV_MIN, GV_MAX)
+        # Viewer uses measured positions directly (2-motor case)
+        x_meas = p1
+        y_meas = p2
 
-            # -----------------------------
-            # Send velocities (ALL motors every loop)
-            # This is what prevents drift + removes "handoff jumps".
-            # -----------------------------
-            motor1.setGoalVelocity(gv1, verbose=False)
-            motor2.setGoalVelocity(gv2, verbose=False)
-            # motor3.setGoalVelocity(gv3, verbose=False)
-            # motor4.setGoalVelocity(gv4, verbose=False)
-            p3 = p4 = 0  # dummy values for motor3, motor4
-            # Continuous measured XY for viewer (no switching)
-            x_meas = p1 + p3
-            y_meas = p2 + p4
+        # UDP viewer
+        if now_s - self._last_send >= self._send_period:
+            self._last_send = now_s
+            msg = f"{int(x_meas)},{int(y_meas)},{int(self.a)},{self.state.name}\n"
+            try:
+                self._udp.sendto(msg.encode(), self._viewer_addr)
+            except OSError:
+                pass
 
-            # UDP viewer
-            if now_s - self._last_send >= self._send_period:
-                self._last_send = now_s
-                msg = f"{int(x_meas)},{int(y_meas)},{int(self.r)},{self.state.name}\n"
-                try:
-                    self._udp.sendto(msg.encode(), self._viewer_addr)
-                except OSError:
-                    pass
-
-            # Light debug (comment out if timing sensitive)
-            print(f"theta={self.theta*180/math.pi:6.2f}  state={self.state.name}  gv=[{gv1},{gv2}]")
+        print(
+            f"t={self.t:7.3f}  state={self.state.name}  "
+            f"x_des={x_des:9.1f} y_des={y_des:9.1f}  "
+            f"gv=[{gv1},{gv2}]"
+        )
 
     def run(self):
         try:
