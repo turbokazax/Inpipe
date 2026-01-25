@@ -7,3 +7,16 @@
 - Four-motor setup: adjacent pairs of motors (theoretically, yet to test) rotate the end effector quadrant-by-quadrant (also, with shrinking radius by dt) 
 - Telemetry: Sending, Sniffing (Receiving) via UDP Packets
 
+## Use:
+Example:
+```
+python exec.py Routine/test934.py --r0 1_000_000 --host 127.0.0.1 --viz-port 9999
+```
+For help, use:
+```
+python exec.py --help
+```
+or, for a specific Routine's manual, use:
+```
+python exec.py Routine/*your_routine*.py --help-all
+```
