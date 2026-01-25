@@ -10,7 +10,7 @@ import time, math
 from enum import Enum
 from Logic.PIDController import PIDController
 import socket
-from Misc.Helpers import clamp
+from Misc.Helpers import clamp, getTime
 
 # -----------------------------
 # Helpers / constants
@@ -57,10 +57,22 @@ motors = MotorGroup(motor1, motor2)
 # motors = MotorGroup(motor1, motor2, motor3, motor4)
 # motors = MotorGroup(motor1, motor2)
 
+from Logic.Telemetry import Sender, Sniffer
+
+# SimpleTelemetry = Sender(port = 9999)
+import os
+
+# CSV_Sender = Sender(name = os.path.basename(__file__).strip(".py"), port = 64848)
+# CSV_Logger = Sniffer(port = CSV_Sender.getPort())
+# Viz_Sender = Sender(port = 9999)
+# Viz_Logger = Sniffer(port = Viz_Sender.getPort())
 
 class test933(Routine):
-    def __init__(self):
+    def __init__(self, csv_sender=None, csv_logger=None, viz_sender=None):
         super().__init__()
+        self.csv_sender = csv_sender
+        self.csv_logger = csv_logger
+        self.viz_sender = viz_sender
 
         motors.enableTorque()
         motors.setReverseMode(False)
@@ -103,11 +115,11 @@ class test933(Routine):
             pid.setIntegralLimit(0.0)     # effectively disables integral accumulation
 
         # UDP setup for viewer_xy.py
-        self._udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._viewer_addr = ("127.0.0.1", 9999)
-        self._last_send = 0.0
-        self._send_period = 1.0 / 100.0 # 100 Hz to the viewer (plenty smooth)
-
+        # self._udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # self._viewer_addr = ("127.0.0.1", 9999)
+        # self._last_send = 0.0
+        # self._send_period = 1.0 / 100.0 # 100 Hz to the viewer (plenty smooth)
+        # telemetry = Telemetry("127.0.0.1", 9999, 100)
         print(f"Radius = {self.r} ticks")
 
         # motor1.setHomingOffset(0)
@@ -133,7 +145,7 @@ class test933(Routine):
             #     # and motor3.reachedGoalPosition(verbose=False, tolerance=1)
             #     # and motor4.reachedGoalPosition(verbose=False, tolerance=1)
             # ):
-            if motors.reachedGoalPosition(verbose=False, tolerance=1):
+            if all(motors.reachedGoalPosition(verbose=False, tolerance=1).values()):
                 print("All motors ready at start pose.")
                 print("Type C to continue...")
                 if input().lower() == "c":
@@ -141,7 +153,7 @@ class test933(Routine):
                     motors.setOpmode(OpModes.VELOCITY)  # IMPORTANT: stay in VELOCITY forever after this
                     print("Continuing in VELOCITY mode...")
                     break
-            time.sleep(0.01)
+            # time.sleep(0.01)
 
     def loop(self):
         # -----------------------------
@@ -258,14 +270,32 @@ class test933(Routine):
         y_meas = p2 + p4
 
         # UDP viewer
-        if now_s - self._last_send >= self._send_period:
-            self._last_send = now_s
-            msg = f"{int(x_meas)},{int(y_meas)},{int(self.r)},{self.state.name}\n"
-            try:
-                self._udp.sendto(msg.encode(), self._viewer_addr)
-            except OSError:
-                pass
-
+        # if now_s - self._last_send >= self._send_period:
+        #     self._last_send = now_s
+        #     msg = f"{int(x_meas)},{int(y_meas)},{int(self.r)},{self.state.name}\n"
+        #     try:
+        #         self._udp.sendto(msg.encode(), self._viewer_addr)
+        #     except OSError:
+        #         pass
+        # Telemetry.loop()
+        # SimpleTelemetry.add(int(x_meas))
+        # SimpleTelemetry.add(int(y_meas))
+        # SimpleTelemetry.add(int(self.r))
+        # SimpleTelemetry.add(self.state.name)
+        # CSV_Sender.add(int(x_meas), int(y_meas), self.theta*180/math.pi, getTime())
+        # CSV_Sender.update()
+        # CSV_Logger.log_CSV(CSV_Sender.getName())
+        if self.csv_sender is not None:
+            self.csv_sender.add(int(x_meas), int(y_meas), self.theta*180/math.pi, getTime())
+            self.csv_sender.update()
+            if self.csv_logger is not None:
+                self.csv_logger.log_CSV(self.csv_sender.getName())
+        # Viz_Sender.add(int(x_meas), int(y_meas), int(self.r), self.state.name)
+        # Viz_Sender.update()
+        if self.viz_sender is not None:
+            self.viz_sender.add(int(x_meas), int(y_meas), int(self.r), self.state.name)
+            self.viz_sender.update()
+        # CSV_Logger.visualize_xy()
         # Light debug (comment out if timing sensitive)
         print(f"theta={self.theta*180/math.pi:6.2f}  state={self.state.name}  gv=[{gv1},{gv2}] (X,Y) = ({x_meas}, {y_meas})")
 
@@ -281,6 +311,37 @@ class test933(Routine):
         motors.stop()
 
 
-if __name__ == "__main__":
-    routine = test933()
+import argparse
+
+def main():
+    import argparse, os
+    from Logic.Telemetry import Sender, Sniffer
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--viz-port", type=int, default=9999)
+    ap.add_argument("--csv-port", type=int, default=None)   # None => auto
+    ap.add_argument("--no-viz", action="store_true")
+    ap.add_argument("--no-csv", action="store_true")
+    args = ap.parse_args()
+
+    name = os.path.splitext(os.path.basename(__file__))[0]
+
+    csv_sender = csv_logger = None
+    if not args.no_csv:
+        csv_sender = Sender(name=name, port=args.csv_port)     # auto if None
+        csv_logger = Sniffer(port=csv_sender.getPort())
+
+    viz_sender = None
+    if not args.no_viz:
+        viz_sender = Sender(name=f"{name}_viz", port=args.viz_port)
+
+    routine = test933(csv_sender=csv_sender, csv_logger=csv_logger, viz_sender=viz_sender)
     routine.run()
+
+if __name__ == "__main__":
+    main()
+
+
+# if __name__ == "__main__":
+#     routine = test933()
+#     routine.run()

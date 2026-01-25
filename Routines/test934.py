@@ -3,24 +3,24 @@
 from Routines.Routine import Routine
 from Mechas.DCMotor import DCMotor
 # from Mechas.MotorGroupOLD import MotorGroup
-from Trash.MotorGroupOLD import MotorGroup
+from Mechas.MotorGroup import MotorGroup
 from Misc.OpModes import OpModes
 from Misc.deg import deg
 import time, math
 from enum import Enum
 from Logic.PIDController import PIDController
 import socket
-
+from Misc.Helpers import clamp, getTime
 
 # -----------------------------
 # Helpers / constants
 # -----------------------------
 TICKS_PER_REV = 607_500.0  # H42P: 607,500 ticks per revolution (matches your deg() scale)
-GV_MIN, GV_MAX = -1500, 1500  # Goal Velocity units: 0.01 rev/min per unit
+GV_MIN, GV_MAX = -2920, 2920  # Goal Velocity units: 0.01 rev/min per unit
 
 
-def clamp(v, lo, hi):
-    return lo if v < lo else hi if v > hi else v
+# def clamp(v, lo, hi):
+#     return lo if v < lo else hi if v > hi else v
 
 
 def ticks_s_to_gv_units(v_ticks_s: float) -> float:
@@ -44,17 +44,35 @@ class fsm(Enum):
 
 # motor1 = DCMotor(1)  # +X
 # motor2 = DCMotor(2)  # +Y
-motor1 = DCMotor(0)
-motor2 = DCMotor(1)
+from Misc.PortPacketManager import PortPacketManager as ppm
+
+port = ppm.getPortHandler()
+packet = ppm.getPacketHandler()
+
+motor1 = DCMotor(0, port = port, packet = packet)
+motor2 = DCMotor(1, port = port, packet = packet)
+motors = MotorGroup(motor1, motor2)
 # motor3 = DCMotor(3)  # -X
 # motor4 = DCMotor(4)  # -Y
 # motors = MotorGroup(motor1, motor2, motor3, motor4)
-motors = MotorGroup(motor1, motor2)
+# motors = MotorGroup(motor1, motor2)
 
+from Logic.Telemetry import Sender, Sniffer
 
-class test932(Routine):
-    def __init__(self):
+# SimpleTelemetry = Sender(port = 9999)
+import os
+
+# CSV_Sender = Sender(name = os.path.basename(__file__).strip(".py"), port = 64848)
+# CSV_Logger = Sniffer(port = CSV_Sender.getPort())
+# Viz_Sender = Sender(port = 9999)
+# Viz_Logger = Sniffer(port = Viz_Sender.getPort())
+
+class test934(Routine):
+    def __init__(self, csv_sender=None, csv_logger=None, viz_sender=None, r0 = None, k = None, period = None):
         super().__init__()
+        self.csv_sender = csv_sender
+        self.csv_logger = csv_logger
+        self.viz_sender = viz_sender
 
         motors.enableTorque()
         motors.setReverseMode(False)
@@ -63,10 +81,12 @@ class test932(Routine):
         # then switch to VELOCITY and stay there forever.
         motors.setOpmode(OpModes.EXTENDED_POSITION)
 
-        self.r = 0  # radius (ticks)
-        self.r0 = deg(270)  # max radius (ticks)
+        self.r = 1e-6  # radius (ticks)
+        self.r0 = deg(270) if r0 is None else r0 # max radius (ticks)
+        self.k = deg(10) if k is None else k # spiral radius scaling factor (arbitrary choice) because ticks are very small by themselves
         # Trajectory param
         self.theta = 0.0
+        self.period = 20 if period is None else period # time for full rev (4 x t_quarter)
         self.last_time_s = time.time()
 
         # State just for logging/visualization
@@ -93,19 +113,20 @@ class test932(Routine):
 
         for pid in (self.PID_m1, self.PID_m2, self.PID_m3, self.PID_m4):
             pid.setPID(kp, 0.0, kd)
-            pid.setOutputLimit(900)       # correction limit; keep < 1500 so FF still matters
+            pid.setOutputLimit(1500/2920 * motor1.getProfileVelocity())       # correction limit; keep < MAX (2920) so FF still matters
             pid.setIntegralLimit(0.0)     # effectively disables integral accumulation
 
         # UDP setup for viewer_xy.py
-        self._udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._viewer_addr = ("127.0.0.1", 9999)
-        self._last_send = 0.0
-        self._send_period = 1.0 / 100.0 # 100 Hz to the viewer (plenty smooth)
-
+        # self._udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # self._viewer_addr = ("127.0.0.1", 9999)
+        # self._last_send = 0.0
+        # self._send_period = 1.0 / 100.0 # 100 Hz to the viewer (plenty smooth)
+        # telemetry = Telemetry("127.0.0.1", 9999, 100)
         print(f"Radius = {self.r} ticks")
 
-        motor1.setHomingOffset(0)
-        motor2.setHomingOffset(0)
+        # motor1.setHomingOffset(0)
+        # motor2.setHomingOffset(0)
+        motors.setHomingOffset(0)
         # Move to start pose: (x=+r, y=0)
         # motor2.forceZero()
         # motor3.forceZero()
@@ -114,23 +135,19 @@ class test932(Routine):
         motors.forceZero()
 
         # Optional profile settings (won’t hurt; in Velocity mode accel profile is commonly used)
-        motor1.setProfileVelocity(1500, verbose=True)
-        motor1.setProfileAcceleration(10765, verbose=True)
-        motor2.setProfileVelocity(1500, verbose=True)
-        motor2.setProfileAcceleration(10765, verbose=True)
-        # motor3.setProfileVelocity(1500, verbose=True)
-        # motor3.setProfileAcceleration(10765, verbose=True)
-        # motor4.setProfileVelocity(1500, verbose=True)
-        # motor4.setProfileAcceleration(10765, verbose=True)
+        motors.setProfileVelocity(1500)
+        motors.setProfileAcceleration(10765)
 
         # Wait for start pose and zeroing
         while True:
-            if (
-                motor1.reachedGoalPosition(verbose=False, tolerance=1)
-                and motor2.reachedGoalPosition(verbose=False, tolerance=1)
-                # and motor3.reachedGoalPosition(verbose=False, tolerance=1)
-                # and motor4.reachedGoalPosition(verbose=False, tolerance=1)
-            ):
+            # if (
+            #     motors.
+            #     # motor1.reachedGoalPosition(verbose=False, tolerance=1)
+            #     # and motor2.reachedGoalPosition(verbose=False, tolerance=1)
+            #     # and motor3.reachedGoalPosition(verbose=False, tolerance=1)
+            #     # and motor4.reachedGoalPosition(verbose=False, tolerance=1)
+            # ):
+            if all(motors.reachedGoalPosition(verbose=False, tolerance=1).values()):
                 print("All motors ready at start pose.")
                 print("Type C to continue...")
                 if input().lower() == "c":
@@ -138,7 +155,7 @@ class test932(Routine):
                     motors.setOpmode(OpModes.VELOCITY)  # IMPORTANT: stay in VELOCITY forever after this
                     print("Continuing in VELOCITY mode...")
                     break
-            time.sleep(0.01)
+            # time.sleep(0.01)
 
     def loop(self):
         # -----------------------------
@@ -154,7 +171,7 @@ class test932(Routine):
         # Trajectory: full circle (smooth)
         # -----------------------------
         # t_quarter = 5.0 * self.r / self.r0  # seconds per quarter circle scaled by radius
-        t_quarter = 5.0  # seconds per quarter circle
+        t_quarter = 5.0 if self.period is None else self.period / 4.0 # seconds per quarter circle
         omega = (math.pi / 2.0) / t_quarter  # rad/s
 
         # dr = deg(1) # = 607500/360 = 1687.5
@@ -163,7 +180,6 @@ class test932(Routine):
         # self.theta = (self.theta + omega * dt_s) % (2.0 * math.pi)
         self.theta += omega * dt_s
         # self.r -= dr * dt_s
-        self.k = deg(10) # spiral radius scaling factor (arbitrary choice) because ticks are very small by themselves
         self.r = self.k * self.theta
         
         
@@ -215,10 +231,14 @@ class test932(Routine):
         # -----------------------------
         # Read positions (ticks)
         # -----------------------------
-        p1 = motor1.getCurrentPosition(verbose=False)
-        p2 = motor2.getCurrentPosition(verbose=False)
+        # p1 = motor1.getCurrentPosition(verbose=False)
+        # p2 = motor2.getCurrentPosition(verbose=False)
+        poss = motors.sync_read_current_position()
+        p1 = poss[motor1.DXL_ID] 
+        p2 = poss[motor2.DXL_ID]
         # p3 = motor3.getCurrentPosition(verbose=False)
         # p4 = motor4.getCurrentPosition(verbose=False)
+        p3 = p4 = 0  # dummy values for motor3, motor4
 
         # -----------------------------
         # PID corrections (in GoalVelocity units)
@@ -240,26 +260,30 @@ class test932(Routine):
         # Send velocities (ALL motors every loop)
         # This is what prevents drift + removes "handoff jumps".
         # -----------------------------
-        motor1.setGoalVelocity(gv1, verbose=False)
-        motor2.setGoalVelocity(gv2, verbose=False)
+        # motor1.setGoalVelocity(gv1, verbose=False)
+        # motor2.setGoalVelocity(gv2, verbose=False)
+        gvs = {motor1.DXL_ID: gv1, motor2.DXL_ID: gv2}
+        motors.sync_write_goal_velocity(gvs)
         # motor3.setGoalVelocity(gv3, verbose=False)
         # motor4.setGoalVelocity(gv4, verbose=False)
-        p3 = p4 = 0  # dummy values for motor3, motor4
+        
         # Continuous measured XY for viewer (no switching)
         x_meas = p1 + p3
         y_meas = p2 + p4
 
-        # UDP viewer
-        if now_s - self._last_send >= self._send_period:
-            self._last_send = now_s
-            msg = f"{int(x_meas)},{int(y_meas)},{int(self.r)},{self.state.name}\n"
-            try:
-                self._udp.sendto(msg.encode(), self._viewer_addr)
-            except OSError:
-                pass
-
+        if self.csv_sender is not None:
+            self.csv_sender.add(int(x_meas), int(y_meas), self.theta*180/math.pi, getTime())
+            self.csv_sender.update()
+            if self.csv_logger is not None:
+                self.csv_logger.log_CSV(self.csv_sender.getName())
+        # Viz_Sender.add(int(x_meas), int(y_meas), int(self.r), self.state.name)
+        # Viz_Sender.update()
+        if self.viz_sender is not None:
+            self.viz_sender.add(int(x_meas), int(y_meas), int(self.r), self.state.name)
+            self.viz_sender.update()
+        # CSV_Logger.visualize_xy()
         # Light debug (comment out if timing sensitive)
-        print(f"theta={self.theta*180/math.pi:6.2f}  state={self.state.name}  gv=[{gv1},{gv2}]")
+        print(f"theta={self.theta*180/math.pi:6.2f}  state={self.state.name}  gv=[{gv1},{gv2}] (X,Y) = ({x_meas}, {y_meas})")
 
     def run(self):
         try:
@@ -273,6 +297,40 @@ class test932(Routine):
         motors.stop()
 
 
-if __name__ == "__main__":
-    routine = test932()
+import argparse
+
+def main():
+    import argparse, os
+    from Logic.Telemetry import Sender, Sniffer
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--viz-port", type=int, default=9999)
+    ap.add_argument("--csv-port", type=int, default=None)   # None => auto
+    ap.add_argument("--no-viz", action="store_true")
+    ap.add_argument("--no-csv", action="store_true")
+    ap.add_argument("--r0", type=int, default=455626)
+    ap.add_argument("--k", type=int, default=16875)
+    ap.add_argument("--period", type=int, default=20)
+    args = ap.parse_args()
+
+    name = os.path.splitext(os.path.basename(__file__))[0]
+
+    csv_sender = csv_logger = None
+    if not args.no_csv:
+        csv_sender = Sender(name=name, port=args.csv_port)     # auto if None
+        csv_logger = Sniffer(port=csv_sender.getPort())
+
+    viz_sender = None
+    if not args.no_viz:
+        viz_sender = Sender(name=f"{name}_viz", port=args.viz_port)
+
+    routine = test934(csv_sender=csv_sender, csv_logger=csv_logger, viz_sender=viz_sender, r0 = args.r0, k = args.k, period = args.period)
     routine.run()
+
+if __name__ == "__main__":
+    main()
+
+
+# if __name__ == "__main__":
+#     routine = test933()
+#     routine.run()
