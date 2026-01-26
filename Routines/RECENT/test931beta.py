@@ -2,7 +2,8 @@
 
 from Routines.Routine import Routine
 from Mechas.DCMotor import DCMotor
-from Mechas.MotorGroupOLD import MotorGroup
+# from Mechas.MotorGroupOLD import MotorGroup
+from Trash.MotorGroupOLD import MotorGroup
 from Misc.OpModes import OpModes
 from Misc.deg import deg
 import time, math
@@ -158,10 +159,10 @@ class test931beta(Routine):
         x_des = self.r * math.cos(self.theta)
         y_des = self.r * math.sin(self.theta)
 
-        # vx_des = -self.r * math.sin(self.theta) * omega * dr # ticks/s
-        # vy_des =  self.r * math.cos(self.theta) * omega * dr # ticks/s
-        vx_des = -self.r*math.sin(self.theta) * omega  - dr*math.cos(self.theta) # ticks/s
-        vy_des =  self.r*math.cos(self.theta) * omega - dr*math.sin(self.theta) # ticks/s
+        vx_des = -self.r*math.sin(self.theta) * omega  
+        - dr*math.cos(self.theta) # ticks/s
+        vy_des =  self.r*math.cos(self.theta) * omega
+        - dr*math.sin(self.theta) # ticks/s
 
         # Determine quadrant state (for debugging only)
         if x_des >= 0 and y_des >= 0:

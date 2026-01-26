@@ -51,6 +51,8 @@ motor2 = DCMotor(1)
 # motors = MotorGroup(motor1, motor2, motor3, motor4)
 motors = MotorGroup(motor1, motor2)
 
+avg_iter_time = 0.0
+iter_count = 0
 
 class test932(Routine):
     def __init__(self):
@@ -141,6 +143,7 @@ class test932(Routine):
             time.sleep(0.01)
 
     def loop(self):
+        global avg_iter_time, iter_count
         # -----------------------------
         # Timing
         # -----------------------------
@@ -149,6 +152,9 @@ class test932(Routine):
         self.last_time_s = now_s
         if dt_s <= 0.0 or dt_s > 0.45:
             dt_s = 0.01
+
+        avg_iter_time += dt_s
+        iter_count += 1
 
         # -----------------------------
         # Trajectory: full circle (smooth)
@@ -266,6 +272,7 @@ class test932(Routine):
             while True:
                 self.loop()
         except KeyboardInterrupt:
+            # print(f"Average iteration time over {iter_count} iterations: {avg_iter_time/iter_count:.6f} s")
             print("Routine stopped by user.")
             self.onStop()
 

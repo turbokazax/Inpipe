@@ -62,13 +62,15 @@ from Logic.Telemetry import Sender, Sniffer
 # SimpleTelemetry = Sender(port = 9999)
 import os
 
+avg_iter_time = 0.0
+iter_count = 0
 # CSV_Sender = Sender(name = os.path.basename(__file__).strip(".py"), port = 64848)
 # CSV_Logger = Sniffer(port = CSV_Sender.getPort())
 # Viz_Sender = Sender(port = 9999)
 # Viz_Logger = Sniffer(port = Viz_Sender.getPort())
 
 class test934(Routine):
-    def __init__(self, csv_sender=None, csv_logger=None, viz_sender=None, r0 = None, k = None, period = None):
+    def __init__(self, csv_sender: Sender =None, csv_logger: Sniffer =None, viz_sender: Sender=None, r0: int = None, k: int = None, period: int = None):
         super().__init__()
         self.csv_sender = csv_sender
         self.csv_logger = csv_logger
@@ -158,6 +160,7 @@ class test934(Routine):
             # time.sleep(0.01)
 
     def loop(self):
+        global avg_iter_time, iter_count
         # -----------------------------
         # Timing
         # -----------------------------
@@ -166,7 +169,8 @@ class test934(Routine):
         self.last_time_s = now_s
         if dt_s <= 0.0 or dt_s > 0.45:
             dt_s = 0.01
-
+        avg_iter_time += dt_s
+        iter_count += 1
         # -----------------------------
         # Trajectory: full circle (smooth)
         # -----------------------------
@@ -174,25 +178,19 @@ class test934(Routine):
         t_quarter = 5.0 if self.period is None else self.period / 4.0 # seconds per quarter circle
         omega = (math.pi / 2.0) / t_quarter  # rad/s
 
-        # dr = deg(1) # = 607500/360 = 1687.5
-        # dr = 0
-
-        # self.theta = (self.theta + omega * dt_s) % (2.0 * math.pi)
         self.theta += omega * dt_s
-        # self.r -= dr * dt_s
         self.r = self.k * self.theta
-        
         
         self.r = min(self.r, self.r0)  # max radius
         x_des = self.r * math.cos(self.theta)
         y_des = self.r * math.sin(self.theta)
 
-        # vx_des = -self.r * math.sin(self.theta) * omega * dr # ticks/s <- static radius
-        # vy_des =  self.r * math.cos(self.theta) * omega * dr # ticks/s <- static radius
-        # vx_des = -self.r*math.sin(self.theta) * omega  - dr*math.cos(self.theta) # ticks/s <- radius changing by dt
-        # vy_des =  self.r*math.cos(self.theta) * omega - dr*math.sin(self.theta) # ticks/s <- radius changing by dt
-        vx_des = -self.r * math.sin(self.theta) * omega + omega * math.cos(self.theta) * self.k # <- radius changing w.r.t omega (CURRENT)
-        vy_des = self.r * math.cos(self.theta) * omega + omega * math.sin(self.theta) * self.k # <- radius changing w.r.t omega (CURRENT)
+        vx_des = -self.r * math.sin(self.theta) * omega 
+        + omega * math.cos(self.theta) * self.k 
+        # <- radius changing w.r.t omega (CURRENT)
+        vy_des = self.r * math.cos(self.theta) * omega 
+        + omega * math.sin(self.theta) * self.k 
+        # <- radius changing w.r.t omega (CURRENT)
         
         # Determine quadrant state (for debugging only)
         if x_des >= 0 and y_des >= 0:
@@ -275,6 +273,7 @@ class test934(Routine):
             self.csv_sender.add(int(x_meas), int(y_meas), self.theta*180/math.pi, getTime())
             self.csv_sender.update()
             if self.csv_logger is not None:
+                self.csv_logger.set_csv_header("X_ticks,Y_ticks,Theta_deg,Time_s")
                 self.csv_logger.log_CSV(self.csv_sender.getName())
         # Viz_Sender.add(int(x_meas), int(y_meas), int(self.r), self.state.name)
         # Viz_Sender.update()
@@ -290,6 +289,7 @@ class test934(Routine):
             while True:
                 self.loop()
         except KeyboardInterrupt:
+            print(f"Average iteration time over {iter_count} iterations: {avg_iter_time/iter_count:.6f} s")
             print("Routine stopped by user.")
             self.onStop()
 
