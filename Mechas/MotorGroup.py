@@ -4,14 +4,18 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from Mechas.DCMotor import DCMotor
 from Misc.OpModes import OpModes
-from Misc.ControlTable import ControlTable as CT
+# from Misc.ControlTable import ControlTable as CT
+from Misc.ControlTable import ControlTable_H42P as CT_H42P
+from Misc.ControlTable import ControlTable_L42 as CT_L42
+from Misc.ControlTable import ControlTable_M42 as CT_M42
 # from Misc.int32 import int32
-from Misc.Helpers import int32
+from Misc.Helpers import int32, int16, clamp
 
 from dynamixel_sdk import COMM_SUCCESS
 from dynamixel_sdk.group_sync_read import GroupSyncRead
 from dynamixel_sdk.group_sync_write import GroupSyncWrite
-
+from dynamixel_sdk.group_bulk_read import GroupBulkRead
+from dynamixel_sdk.group_bulk_write import GroupBulkWrite
 
 def _int16(u16: int) -> int:
     """Convert unsigned 16-bit -> signed 16-bit."""
@@ -47,6 +51,8 @@ class MotorGroup:
         # Cache SyncRead/SyncWrite objects: key=(start_addr, data_len)
         self._syncread_cache: Dict[Tuple[int, int], GroupSyncRead] = {}
         self._syncwrite_cache: Dict[Tuple[int, int], GroupSyncWrite] = {}
+        self._bulkread_cache: Dict[Tuple[Tuple[int, int, int], ...], GroupBulkRead] = {}
+        self._bulkwrite_cache: Dict[Tuple[Tuple[int, int, int], ...], GroupBulkWrite] = {}
 
     # -------------------------
     # Construction helpers
@@ -79,8 +85,10 @@ class MotorGroup:
 
     def _shared_port_packet(self):
         # Use first motor as source of truth.
+        # m0 = self.motors[0]
+        # return m0.getPortHandler(), m0.getPacketHandler()
         m0 = self.motors[0]
-        return m0.getPortHandler(), m0.getPacketHandler()
+        return m0.port, m0.packet
 
     def setSharedPortPacket(self, port, packet):
         """
@@ -127,7 +135,10 @@ class MotorGroup:
 
     def setOpmode(self, opmode: OpModes):
         for motor in self.motors:
-            motor.setOpMode(opmode)
+            if motor.MODEL == "L42" and opmode == OpModes.EXTENDED_POSITION:
+                motor.setOpMode(OpModes.POSITION, verbose=True)
+            else:
+                motor.setOpMode(opmode)
 
     def isMoving(self, verbose: bool = True):
         states = {}
@@ -196,10 +207,10 @@ class MotorGroup:
         return {m.DXL_ID: m.getGoalPosition(verbose=False) for m in self.motors}
 
     def reachedGoalPosition(self, tolerance: int = 0, verbose: bool = True):
-        return {m.DXL_ID: m.reachedGoalPosition(tolerance=tolerance, verbose=verbose) for m in self.motors}
+        return {m.DXL_ID: m.reachedGoalPosition(tolerance_raw=tolerance, verbose=verbose) for m in self.motors}
 
     def reachedPosition(self, reference: int, tolerance: int = 0, verbose: bool = True):
-        return {m.DXL_ID: m.reachedPosition(reference, tolerance=tolerance, verbose=verbose) for m in self.motors}
+        return {m.DXL_ID: m.reachedPosition(reference, tolerance_raw=tolerance, verbose=verbose) for m in self.motors}
 
     def zero(self, verbose: bool = True):
         for motor in self.motors:
@@ -387,20 +398,152 @@ class MotorGroup:
             raise RuntimeError(f"GroupSyncWrite txPacket failed: {result}")
 
     # Practical sync-writes:
-    def sync_write_goal_velocity(self, velocities_by_id: Dict[int, int]) -> None:
-        self.sync_write_raw(CT.GOAL_VELOCITY.value, 4, velocities_by_id)
+    # def sync_write_goal_velocity(self, velocities_by_id: Dict[int, int]) -> None:
+    #     self.sync_write_raw(CT.GOAL_VELOCITY.value, 4, velocities_by_id)
 
-    def sync_write_goal_position(self, positions_by_id: Dict[int, int]) -> None:
-        self.sync_write_raw(CT.GOAL_POSITION.value, 4, positions_by_id)
+    # def sync_write_goal_position(self, positions_by_id: Dict[int, int]) -> None:
+    #     self.sync_write_raw(CT.GOAL_POSITION.value, 4, positions_by_id)
 
-    def sync_write_goal_pwm(self, pwm_by_id: Dict[int, int]) -> None:
-        self.sync_write_raw(CT.GOAL_PWM.value, 2, pwm_by_id)
+    # def sync_write_goal_pwm(self, pwm_by_id: Dict[int, int]) -> None:
+    #     self.sync_write_raw(CT.GOAL_PWM.value, 2, pwm_by_id)
 
-    def sync_write_goal_current(self, current_by_id: Dict[int, int]) -> None:
-        self.sync_write_raw(CT.GOAL_CURRENT.value, 2, current_by_id)
+    # def sync_write_goal_current(self, current_by_id: Dict[int, int]) -> None:
+    #     self.sync_write_raw(CT.GOAL_CURRENT.value, 2, current_by_id)
 
-    def sync_write_profile_velocity(self, profile_vel_by_id: Dict[int, int]) -> None:
-        self.sync_write_raw(CT.PROFILE_VELOCITY.value, 4, profile_vel_by_id)
+    # def sync_write_profile_velocity(self, profile_vel_by_id: Dict[int, int]) -> None:
+    #     self.sync_write_raw(CT.PROFILE_VELOCITY.value, 4, profile_vel_by_id)
 
-    def sync_write_profile_acceleration(self, profile_acc_by_id: Dict[int, int]) -> None:
-        self.sync_write_raw(CT.PROFILE_ACCELERATION.value, 4, profile_acc_by_id)
+    # def sync_write_profile_acceleration(self, profile_acc_by_id: Dict[int, int]) -> None:
+    #     self.sync_write_raw(CT.PROFILE_ACCELERATION.value, 4, profile_acc_by_id)
+
+    # =====================================================================
+    # BULK READ/WRITE (GroupBulkRead/GroupBulkWrite)
+    # =====================================================================
+    def _bulk_sig(self, specs_by_id: Dict[int, Tuple[int, int]]) -> Tuple[Tuple[int, int, int], ...]:
+    # signature = sorted tuples of (id, addr, length)
+        return tuple(sorted((int(dxl_id), int(addr), int(length)) for dxl_id, (addr, length) in specs_by_id.items()))
+
+    def _get_bulk_reader(self, specs_by_id: Dict[int, Tuple[int, int]]) -> GroupBulkRead:
+        sig = self._bulk_sig(specs_by_id)
+        if sig in self._bulkread_cache:
+            return self._bulkread_cache[sig]
+
+        port, ph = self._shared_port_packet()
+        br = GroupBulkRead(port, ph)
+        for dxl_id, (addr, length) in specs_by_id.items():
+            br.addParam(int(dxl_id), int(addr), int(length))
+        self._bulkread_cache[sig] = br
+        return br
+
+    def _get_bulk_writer(self, specs_by_id: Dict[int, Tuple[int, int]]) -> GroupBulkWrite:
+        sig = self._bulk_sig(specs_by_id)
+        if sig in self._bulkwrite_cache:
+            return self._bulkwrite_cache[sig]
+
+        port, ph = self._shared_port_packet()
+        bw = GroupBulkWrite(port, ph)
+        # preload with zeros so we can update via changeParam()
+        for dxl_id, (addr, length) in specs_by_id.items():
+            bw.addParam(int(dxl_id), int(addr), int(length), [0] * int(length))
+        self._bulkwrite_cache[sig] = bw
+        return bw
+
+    def _bulk_read(self, specs_by_id: Dict[int, Tuple[int, int]], fast: bool = True) -> Dict[int, GroupBulkRead]:
+        br = self._get_bulk_reader(specs_by_id)
+        result = br.fastBulkRead() if fast else br.txRxPacket()
+        if result != COMM_SUCCESS:
+            raise RuntimeError(f"GroupBulkRead failed: {result}")
+        return br
+
+    def _bulk_write(self, values_by_id: Dict[int, Tuple[int, int, List[int]]]) -> None:
+        """
+        values_by_id: {id: (addr, length, data_bytes)}
+        """
+        specs = {dxl_id: (addr, length) for dxl_id, (addr, length, _) in values_by_id.items()}
+        bw = self._get_bulk_writer(specs)
+        for dxl_id, (addr, length, data) in values_by_id.items():
+            bw.changeParam(int(dxl_id), int(addr), int(length), data)
+        result = bw.txPacket()
+        if result != COMM_SUCCESS:
+            raise RuntimeError(f"GroupBulkWrite failed: {result}")
+        
+    def bulk_read_state(self, fast: bool = True) -> Dict[int, dict]:
+        """
+        Reads a compact feedback block per motor:
+        MOVING, PRESENT_POSITION, PRESENT_VELOCITY, PRESENT_CURRENT,
+        PRESENT_INPUT_VOLTAGE, PRESENT_TEMPERATURE
+
+        Returns: {id: {"moving":..., "pos":..., "vel":..., "cur":..., "volt":..., "temp":...}}
+        """
+        specs: Dict[int, Tuple[int, int]] = {}
+
+        for m in self.motors:
+            if m.MODEL == "H42P":
+                start = m.CT.MOVING.value          # 570
+                end = m.CT.PRESENT_TEMPERATURE.value  # 594
+            else:
+                start = m.CT.MOVING.value          # 610
+                end = m.CT.PRESENT_TEMPERATURE.value  # 625
+            length = int(end - start + 1)
+            specs[m.DXL_ID] = (int(start), int(length))
+
+        br = self._bulk_read(specs, fast=fast)
+
+        out: Dict[int, dict] = {}
+        for m in self.motors:
+            dxl = m.DXL_ID
+            out[dxl] = {
+                "moving": br.getData(dxl, m.CT.MOVING.value, 1),
+                "pos": int32(br.getData(dxl, m.CT.PRESENT_POSITION.value, 4)),
+                "vel": int32(br.getData(dxl, m.CT.PRESENT_VELOCITY.value, 4)),
+                "cur": int16(br.getData(dxl, m.CT.PRESENT_CURRENT.value, 2)),
+                "volt": br.getData(dxl, m.CT.PRESENT_INPUT_VOLTAGE.value, 2),
+                "temp": br.getData(dxl, m.CT.PRESENT_TEMPERATURE.value, 1),
+            }
+        return out
+    
+    def bulk_write_goal_velocity(self, vel_raw_by_id: Dict[int, int]) -> None:
+        """
+        Writes GOAL_VELOCITY to whichever IDs are provided.
+        Clamps to each motor's raw velocity range if motor.cfg exists.
+        """
+        values: Dict[int, Tuple[int, int, List[int]]] = {}
+
+        by_id = {m.DXL_ID: m for m in self.motors}
+        for dxl_id, raw in vel_raw_by_id.items():
+            m = by_id[int(dxl_id)]
+            assert hasattr(m.CT, "GOAL_VELOCITY"), f"{m.MODEL} has no GOAL_VELOCITY"
+            v = int(raw)
+            if hasattr(m, "cfg") and "vel_raw_min" in m.cfg:
+                v = clamp(v, int(m.cfg["vel_raw_min"]), int(m.cfg["vel_raw_max"]))
+            values[int(dxl_id)] = (m.CT.GOAL_VELOCITY.value, 4, _le_bytes(v, 4))
+
+        self._bulk_write(values)
+
+    def bulk_write_goal_velocity_rpm(self, rpm_by_id: Dict[int, float]) -> None:
+        values: Dict[int, Tuple[int, int, List[int]]] = {}
+        by_id = {m.DXL_ID: m for m in self.motors}
+
+        for dxl_id, rpm in rpm_by_id.items():
+            m = by_id[int(dxl_id)]
+            assert hasattr(m.CT, "GOAL_VELOCITY"), f"{m.MODEL} has no GOAL_VELOCITY"
+            scale = float(m.cfg["vel_rpm_per_unit"])
+            raw = int(round(float(rpm) / scale))
+            raw = clamp(raw, int(m.cfg["vel_raw_min"]), int(m.cfg["vel_raw_max"]))
+            values[int(dxl_id)] = (m.CT.GOAL_VELOCITY.value, 4, _le_bytes(raw, 4))
+
+        self._bulk_write(values)
+
+    def bulk_write_goal_position(self, pos_by_id: Dict[int, int]) -> None:
+        values: Dict[int, Tuple[int, int, List[int]]] = {}
+        by_id = {m.DXL_ID: m for m in self.motors}
+
+        for dxl_id, pos in pos_by_id.items():
+            m = by_id[int(dxl_id)]
+            assert hasattr(m.CT, "GOAL_POSITION"), f"{m.MODEL} has no GOAL_POSITION"
+            v = int(pos)
+            if hasattr(m, "cfg") and "pos_raw_min" in m.cfg:
+                v = clamp(v, int(m.cfg["pos_raw_min"]), int(m.cfg["pos_raw_max"]))
+            values[int(dxl_id)] = (m.CT.GOAL_POSITION.value, 4, _le_bytes(v, 4))
+
+        self._bulk_write(values)

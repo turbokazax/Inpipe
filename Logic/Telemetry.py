@@ -47,7 +47,7 @@ class UDPManager():
 udpman = UDPManager()
 
 class Sender():
-    def __init__(self, ip = "127.0.0.1", port = None, freq = 1/100, name = "Untitlaaed"):
+    def __init__(self, ip = "127.0.0.1", port = None, freq = 1/100, name = "Untitled"):
         self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # self.viewer_addr = (ip, port)
         self.port = port if port is not None else udpman.getFreePort()

@@ -273,7 +273,7 @@ def main():
             rc = routine_proc.poll()
             if rc is not None:
                 break
-            time.sleep(0.1)
+            # time.sleep(0.1)
     except KeyboardInterrupt:
         pass
     finally:

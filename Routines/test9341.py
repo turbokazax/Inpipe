@@ -41,9 +41,6 @@ class fsm(Enum):
     NEGXNEGY = 3
     POSXNEGY = 4
 
-
-# motor1 = DCMotor(1)  # +X
-# motor2 = DCMotor(2)  # +Y
 from Misc.PortPacketManager import PortPacketManager as ppm
 
 port = ppm.getPortHandler()
@@ -51,11 +48,9 @@ packet = ppm.getPacketHandler()
 
 motor1 = DCMotor(0, port = port, packet = packet, MODEL="H42P")
 motor2 = DCMotor(1, port = port, packet = packet, MODEL="H42P")
-motors = MotorGroup(motor1, motor2)
-# motor3 = DCMotor(3)  # -X
-# motor4 = DCMotor(4)  # -Y
-# motors = MotorGroup(motor1, motor2, motor3, motor4)
-# motors = MotorGroup(motor1, motor2)
+motor3 = DCMotor(2, port = port, packet = packet, MODEL="L42")
+motor4 = DCMotor(3, port = port, packet = packet, MODEL="M42")
+motors = MotorGroup(motor1, motor2, motor3, motor4)
 
 from Logic.Telemetry import Sender, Sniffer
 
@@ -69,7 +64,7 @@ iter_count = 0
 # Viz_Sender = Sender(port = 9999)
 # Viz_Logger = Sniffer(port = Viz_Sender.getPort())
 
-class test934(Routine):
+class test9341(Routine):
     def __init__(self, csv_sender: Sender =None, csv_logger: Sniffer =None, viz_sender: Sender=None, r0: int = None, k: int = None, period: int = None):
         super().__init__()
         self.csv_sender = csv_sender
@@ -126,19 +121,8 @@ class test934(Routine):
         # telemetry = Telemetry("127.0.0.1", 9999, 100)
         print(f"Radius = {self.r} ticks")
 
-        # motor1.setHomingOffset(0)
-        # motor2.setHomingOffset(0)
         motors.setHomingOffset(0)
-        # Move to start pose: (x=+r, y=0)
-        # motor2.forceZero()
-        # motor3.forceZero()
-        # motor4.forceZero()
-        # motor1.setGoalPosition(int(self.r))
         motors.forceZero()
-
-        # Optional profile settings (won’t hurt; in Velocity mode accel profile is commonly used)
-        motors.setProfileVelocity(1500)
-        motors.setProfileAcceleration(10765)
 
         # Wait for start pose and zeroing
         while True:
@@ -324,7 +308,7 @@ def main():
     if not args.no_viz:
         viz_sender = Sender(name=f"{name}_viz", port=args.viz_port)
 
-    routine = test934(csv_sender=csv_sender, csv_logger=csv_logger, viz_sender=viz_sender, r0 = args.r0, k = args.k, period = args.period)
+    routine = test9341(csv_sender=csv_sender, csv_logger=csv_logger, viz_sender=viz_sender, r0 = args.r0, k = args.k, period = args.period)
     routine.run()
 
 if __name__ == "__main__":

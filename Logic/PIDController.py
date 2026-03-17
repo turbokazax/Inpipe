@@ -1,3 +1,5 @@
+from Misc.Helpers import clamp
+
 class PIDController():
     def __init__(self, kp = 0.0, ki = 0.0, kd = 0.0):
         self.kp = kp
@@ -37,7 +39,8 @@ class PIDController():
         output = (self.kp * error) + (self.ki * self._integral) + (self.kd * derivative)
 
         if self.output_limit is not None:
-            output = max(min(output, self.output_limit), -self.output_limit)
+            # output = max(min(output, self.output_limit), -self.output_limit)
+            output = clamp(output, -self.output_limit, self.output_limit)
 
         self._last_error = error
         return output

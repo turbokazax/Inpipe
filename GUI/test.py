@@ -1,3 +1,4 @@
+from time import time
 import tkinter as tk
 from tkinter import ttk
 import threading
@@ -6,18 +7,18 @@ import math
 from Mechas.DCMotor import DCMotor
 from Misc.OpModes import OpModes
 
-motor1 = DCMotor(0)
+motor1 = DCMotor(0, MODEL="H42P")
 motor1.enableTorque()
 motor1.setOpMode(OpModes.EXTENDED_POSITION)
 motor1.setReverseMode(False)
-motor2 = DCMotor(1)
-motor2.enableTorque()
-motor2.setOpMode(OpModes.EXTENDED_POSITION)
-motor2.setReverseMode(False)
+# motor2 = DCMotor(1)
+# motor2.enableTorque()
+# motor2.setOpMode(OpModes.EXTENDED_POSITION)
+# motor2.setReverseMode(False)
 
 motors = {
     "Motor 0": motor1,
-    "Motor 1": motor2,
+    # "Motor 1": motor2,
 }
 activeMotor = motor1
 # ---- Helper wrappers you can map to your real API ----
@@ -52,6 +53,16 @@ def get_present_angle_safe():
         return ticks, deg
     except Exception:
         return None, None
+    
+def get_present_current_safe():
+    """
+    Read present current (mA). Returns float/int or None on failure.
+    """
+    try:
+        return activeMotor.getPresentCurrent()  # your method name
+    except Exception:
+        return None
+
 # ------------------------------------------------------
 
 # ---- Replace these with your real motor functions (kept, still used by buttons) ----
@@ -69,6 +80,9 @@ class MotorGUI(tk.Tk):
         # --- Top bar: OpMode selector + live position ---
         top = ttk.Frame(self, padding=(12, 12, 12, 0))
         top.pack(fill="x")
+
+        status = ttk.Frame(self, padding=(12, 6, 12, 0))
+        status.pack(fill="x")
 
         ttk.Label(top, text="OpMode:").pack(side="left")
         self.mode_var = tk.StringVar(value="POSITION")
@@ -97,17 +111,24 @@ class MotorGUI(tk.Tk):
         self.reset_btn = ttk.Button(dir_frame, text="Reset Enc", command=self.on_reset_encoder)
         self.reset_btn.pack(side="top", fill="x", pady=(2, 0))
 
-        # Live position label
+            # Live position label (status row)
         self.pos_var = tk.StringVar(value="Position: —")
-        self.pos_label = ttk.Label(top, textvariable=self.pos_var)
-        self.pos_label.pack(side="left", padx=(12, 0))
+        self.pos_label = ttk.Label(status, textvariable=self.pos_var)
+        self.pos_label.pack(side="left")
+
+        # Live current label (status row)
+        self.cur_var = tk.StringVar(value="Current: — mA")
+        self.cur_label = ttk.Label(status, textvariable=self.cur_var)
+        self.cur_label.pack(side="left", padx=(18, 0))
+
+
 
         self.pos_deg_var = tk.StringVar(value="—°")
         self.pos_ticks_var = tk.StringVar(value="ticks: —")
 
         self.title("Dynamixel Test")
-        self.geometry("640x320")
-        self.resizable(False, False)
+        self.geometry("640x360")
+        self.resizable(True, True)
 
         # --- Controls ---
         frm = ttk.Frame(self, padding=12)
@@ -135,6 +156,7 @@ class MotorGUI(tk.Tk):
         self._velocity_after_id = None
         self.render_mode_ui()
         self.after(100, self._update_position)
+        self.after(100, self._update_current)
         self._update_dir_label()
 
     # ---- Helpers ----
@@ -341,6 +363,19 @@ class MotorGUI(tk.Tk):
             self.pos_deg_var.set(f"{pos:.1f}°")
             self.pos_ticks_var.set(f"{int(ticks)}")
         self.after(100, self._update_position)
+
+    def _update_current(self):
+        cur = get_present_current_safe()
+        if cur is None:
+            self.cur_var.set("Current: N/A")
+        else:
+            # If it's already in mA, show as integer
+            try:
+                self.cur_var.set(f"Current: {int(cur)} mA")
+            except Exception:
+                self.cur_var.set(f"Current: {cur} mA")
+        self.after(100, self._update_current)
+
 
     def on_rotate_relative(self, direction: int):
         try:
