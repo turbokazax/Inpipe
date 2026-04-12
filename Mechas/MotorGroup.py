@@ -136,6 +136,7 @@ class MotorGroup:
     def setOpmode(self, opmode: OpModes):
         for motor in self.motors:
             if motor.MODEL == "L42" and opmode == OpModes.EXTENDED_POSITION:
+                print(f"Motor {motor.DXL_ID}: L42 does not support Extended Position mode, using Position mode instead")
                 motor.setOpMode(OpModes.POSITION, verbose=True)
             else:
                 motor.setOpMode(opmode)
@@ -502,6 +503,54 @@ class MotorGroup:
             }
         return out
     
+    def bulk_read_present_position(self, fast: bool = False) -> Dict[int, int]:
+        specs: Dict[int, Tuple[int, int]] = {}
+        for m in self.motors:
+            specs[m.DXL_ID] = (int(m.CT.PRESENT_POSITION.value), 4)
+
+        br = self._bulk_read(specs, fast=fast)
+
+        out: Dict[int, int] = {}
+        for m in self.motors:
+            out[m.DXL_ID] = int32(br.getData(m.DXL_ID, m.CT.PRESENT_POSITION.value, 4))
+        return out
+
+
+    def bulk_read_present_velocity(self, fast: bool = False) -> Dict[int, int]:
+        specs: Dict[int, Tuple[int, int]] = {}
+        for m in self.motors:
+            specs[m.DXL_ID] = (int(m.CT.PRESENT_VELOCITY.value), 4)
+
+        br = self._bulk_read(specs, fast=fast)
+
+        out: Dict[int, int] = {}
+        for m in self.motors:
+            out[m.DXL_ID] = int32(br.getData(m.DXL_ID, m.CT.PRESENT_VELOCITY.value, 4))
+        return out
+
+
+    def bulk_read_pos_vel(self, fast: bool = False) -> Dict[int, dict]:
+        specs: Dict[int, Tuple[int, int]] = {}
+
+        for m in self.motors:
+            if m.MODEL == "H42P":
+                start = int(m.CT.PRESENT_VELOCITY.value)   # 576
+                length = 8                                 # 576..583 => vel + pos
+            else:
+                start = int(m.CT.PRESENT_POSITION.value)   # 611
+                length = 8                                 # 611..618 => pos + vel
+            specs[m.DXL_ID] = (start, length)
+
+        br = self._bulk_read(specs, fast=fast)
+
+        out: Dict[int, dict] = {}
+        for m in self.motors:
+            out[m.DXL_ID] = {
+                "pos": int32(br.getData(m.DXL_ID, m.CT.PRESENT_POSITION.value, 4)),
+                "vel": int32(br.getData(m.DXL_ID, m.CT.PRESENT_VELOCITY.value, 4)),
+            }
+        return out
+    
     def bulk_write_goal_velocity(self, vel_raw_by_id: Dict[int, int]) -> None:
         """
         Writes GOAL_VELOCITY to whichever IDs are provided.
@@ -547,3 +596,15 @@ class MotorGroup:
             values[int(dxl_id)] = (m.CT.GOAL_POSITION.value, 4, _le_bytes(v, 4))
 
         self._bulk_write(values)
+
+    # def bulk_write_goal_position(self, pos_by_id: Dict[int, int]) -> None:
+    #     values: Dict[int, Tuple[int, int, List[int]]] = {}
+    #     by_id = {m.DXL_ID: m for m in self.motors}
+
+    #     for dxl_id, pos in pos_by_id.items():
+    #         m = by_id[int(dxl_id)]
+    #         v = int(pos)
+    #         values[int(dxl_id)] = (int(m.CT.GOAL_POSITION.value), 4, _le_bytes(v, 4))
+
+    #     self._bulk_write(values)
+    

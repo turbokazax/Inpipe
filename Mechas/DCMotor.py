@@ -478,17 +478,21 @@ class DCMotor:
         assert op in (OpModes.POSITION.value, OpModes.EXTENDED_POSITION.value), "Must be POSITION or EXTENDED_POSITION"
         self.setGoalPosition(0, verbose=verbose)
 
-    def forceZero(self, verbose: bool = False) -> None:
+    def forceZero(self, verbose: bool = False, motor_type: str = None) -> None:
         self._require("OPERATING_MODE", "GOAL_POSITION")
-        prev = self.getOpMode(verbose=False)
-        if prev not in (OpModes.POSITION.value, OpModes.EXTENDED_POSITION.value):
-            self.setOpMode(OpModes.EXTENDED_POSITION, verbose=True)
-            self.setGoalPosition(0, verbose=False)
-            self.setOpMode(OpModes(prev), verbose=False)
-        else:
-            self.setGoalPosition(0, verbose=False)
         if verbose:
-            print(f"ID {self.DXL_ID}: Force zero complete")
+            print(f"ID {self.DXL_ID}: Force zeroing...")
+        prev = self.getOpMode(verbose=verbose)
+        if prev not in (OpModes.POSITION.value, OpModes.EXTENDED_POSITION.value):
+            if self.MODEL != "L42":
+                self.setOpMode(OpModes.EXTENDED_POSITION, verbose=verbose)
+            else:
+                self.setOpMode(OpModes.POSITION, verbose=verbose)
+            self.setGoalPosition(0, verbose=verbose)
+            self.setOpMode(OpModes(prev), verbose=verbose)
+        else:
+            self.setGoalPosition(0, verbose=verbose)
+       
 
     # ---------- velocity (raw + rpm) ----------
 
