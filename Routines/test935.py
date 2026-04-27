@@ -109,10 +109,10 @@ class test935(Routine):
 
         print(f"Radius = {self.r} ticks")
 
-        motor_x_pos.forceZero(verbose=True)
-        motor_x_neg.forceZero(verbose=True)
-        motor_y_neg.forceZero(verbose=True)
-        motor_y_pos.forceZero(verbose=True)
+        # motor_x_pos.forceZero(verbose=True)
+        # motor_x_neg.forceZero(verbose=True)
+        # motor_y_neg.forceZero(verbose=True)
+        # motor_y_pos.forceZero(verbose=True)
 
         while True:
             ready = (
